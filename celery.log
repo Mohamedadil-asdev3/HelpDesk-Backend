@@ -1,0 +1,26 @@
+nohup: ignoring input
+ 
+ -------------- celery@SZCOCHEL006 v5.5.3 (immunity)
+--- ***** ----- 
+-- ******* ---- Linux-6.14.0-33-generic-x86_64-with-glibc2.39 2025-10-25 07:41:15
+- *** --- * --- 
+- ** ---------- [config]
+- ** ---------- .> app:         Approval:0x74b16a6aeed0
+- ** ---------- .> transport:   redis://localhost:6379/0
+- ** ---------- .> results:     redis://localhost:6379/0
+- *** --- * --- .> concurrency: 8 (prefork)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** ----- 
+ -------------- [queues]
+                .> celery           exchange=celery(direct) key=celery
+                
+
+[tasks]
+  . Ticket.tasks.send_email_task
+
+[2025-10-25 07:41:15,450: INFO/MainProcess] Connected to redis://localhost:6379/0
+[2025-10-25 07:41:15,453: INFO/MainProcess] mingle: searching for neighbors
+[2025-10-25 07:41:16,460: INFO/MainProcess] mingle: all alone
+[2025-10-25 07:41:16,469: INFO/MainProcess] celery@SZCOCHEL006 ready.
+
+worker: Warm shutdown (MainProcess)
