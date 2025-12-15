@@ -33,7 +33,7 @@ from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from django.utils import timezone
 from .models import TicketsMasterConfiguration  # Assuming the model is imported correctly
 # from  Approval.analyse import GlpiUsers
-from  Approval.analyse import CeoApprovalDashboard,HODApprovalDashboardAPI
+from  Helpdesk.analyse import CeoApprovalDashboard,HODApprovalDashboardAPI
 
 # class LocationByCountryAPIView(APIView):
 #     """

@@ -24,7 +24,7 @@ from .views import (
     
 )
 # from Approval.analyse import GlpiUsers
-from Approval.analyse import CeoApprovalDashboard,HODApprovalDashboardAPI
+from Helpdesk.analyse import CeoApprovalDashboard,HODApprovalDashboardAPI
 
 urlpatterns = [
      path('configurations/', TicketsMasterConfigurationView.as_view(), name='tickets-master-configuration'),
