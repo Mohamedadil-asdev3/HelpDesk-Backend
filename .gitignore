@@ -1,0 +1,7 @@
+venv/
+*.pyc
+/migrations
+/__pycache__
+celerybeat-schedule
+/Authenticate/migrations
+/Ticket/migrations
