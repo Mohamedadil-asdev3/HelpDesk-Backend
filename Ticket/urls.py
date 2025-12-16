@@ -1,8 +1,6 @@
 from django.urls import path
 from .views import (
     # GlpiUser,
-    CeoApprovalDashboard,
-    HODApprovalDashboardAPI,
     TicketsMasterConfigurationView,
     TicketCategoryListCreateView,
     TicketCategoryRetrieveUpdateView,
@@ -12,19 +10,19 @@ from .views import (
     EntityAPIView,LocationByCountryAPIView,
     # SLAByEntityCategoryAPIView,
     DepartmentAPIView,UserManagementAPIView,
-    TicketActionView,TicketSLAListCreateView,
+    TicketSLAListCreateView,
     TicketSLADetailView,TicketEmailTemplateListCreateView,
     TicketEmailTemplateDetailView,TicketSLAHomeScreenView,
     TicketSLAByIdView,WatcherGroupListCreateView,WatcherGroupDetailView,
     WatcherUserListView,HolidayAPIView,UpcomingHolidayAPIView,
-    TicketView,HodUserAPIView,RoleAPIView,OverallStatusView,UserStatusView,
+    TicketView,HodUserAPIView,RoleAPIView,OverallStatusView,UserStatusView,TicketActionView,
     WatcherStatusView,UserRoleMappingAPIView,CEODashboardAPIView,MessageListCreateView,
     MessageDetailView,UserMessagesView,PlatformAPIView,ApproverTicketView
     # HodUserAPIView
     
 )
 # from Approval.analyse import GlpiUsers
-from Helpdesk.analyse import CeoApprovalDashboard,HODApprovalDashboardAPI
+# from Helpdesk.analyse import CeoApprovalDashboard,HODApprovalDashboardAPI
 
 urlpatterns = [
      path('configurations/', TicketsMasterConfigurationView.as_view(), name='tickets-master-configuration'),
@@ -91,8 +89,8 @@ urlpatterns = [
     # path('role-permissions/', RolePermissionMappingAPIView.as_view(), name='role-permission-list-create'),
     # path('role-permissions/<int:pk>/', RolePermissionMappingAPIView.as_view(), name='role-permission-update-delete'),
     # Ticket/urls.py  → CORRECT LINE
-   path('ceo-approval/', CeoApprovalDashboard.as_view(), name='CeoApprovalDashboard'),
-   path('hod-dashboard/', HODApprovalDashboardAPI.as_view(), name='hod_dashboard'),
+#    path('ceo-approval/', CeoApprovalDashboard.as_view(), name='CeoApprovalDashboard'),
+#    path('hod-dashboard/', HODApprovalDashboardAPI.as_view(), name='hod_dashboard'),
    path("platform/", PlatformAPIView.as_view()),
    path("platform/<int:pk>/", PlatformAPIView.as_view()),
    

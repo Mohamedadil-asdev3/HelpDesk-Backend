@@ -397,29 +397,7 @@ class TicketSLA(models.Model):
     def __str__(self):
         return f"SLA for {self.category} - {self.subcategory}"
 
-# class TicketApprovalLog(models.Model):
-    
-#     ticket = models.ForeignKey('CreateTicket',on_delete=models.CASCADE,related_name='approval_logs' )
-#     sla = models.ForeignKey('TicketSLA', on_delete=models.SET_NULL, null=True, blank=True,related_name='approval_logs' )
-#     is_current_level = models.BooleanField(default=False)                  
-#     sla_breach = models.BooleanField(default=False) 
-#     current_level = models.IntegerField(default=1)
-#     status = models.CharField(max_length=100, null=True, blank=True)        
-#     created_by = models.ForeignKey(USER, on_delete=models.CASCADE, related_name='created_approval_logs')
-#     approved_by = models.ForeignKey(USER, on_delete=models.CASCADE, related_name='approved_approval_logs', null=True, blank=True)    
-#     created_on = models.DateTimeField(null=True, blank=True)                 
-#     approval_status = models.CharField(max_length=50, null=True, blank=True) 
-#     # approved_by = models.CharField(max_length=255, null=True, blank=True)    
-#     approved_on = models.DateTimeField(null=True, blank=True)                
-#     comments = models.TextField(null=True, blank=True)
-#     created_at = models.DateTimeField(auto_now_add=True)                  
 
-#     class Meta:
-#         db_table = 'tickets_approval_log'
-#         ordering = ['-created_at']
-
-#     def __str__(self):
-#         return f"Log #{self.id} - Ticket #{self.ticket_no.ticket_no if self.ticket_no else 'N/A'}"
 
 class TicketApprovalLog(models.Model):
 
@@ -475,51 +453,7 @@ class TicketApprovalLog(models.Model):
         return f"Log #{self.id} - Ticket #{self.ticket.ticket_no if self.ticket else 'N/A'}"
 
     
-# class Holiday(models.Model):
-#     department = models.ForeignKey(
-#         TicketsMasterConfiguration,
-#         on_delete=models.SET_NULL,
-#         null=True,
-#         blank=True,
-#         related_name='holiday_departments'  # Unique
-#     )
-#     location = models.ForeignKey(
-#         TicketsMasterConfiguration,
-#         on_delete=models.SET_NULL,
-#         null=True,
-#         blank=True,
-#         related_name='holiday_locations'  # Unique
-#     )
-#     entity = models.ForeignKey(
-#         Entity,
-#         on_delete=models.SET_NULL,
-#         null=True,
-#         blank=True,
-#         related_name='holiday_entities'  # Unique
-#     )
-#     name = models.CharField(max_length=100,null=True,blank=True)  # Name of the holiday
-#     date = models.DateField()  # The actual date of the holiday
-#     description = models.TextField(blank=True, null=True)  # Optional description for the holiday
-#     status = models.SmallIntegerField(choices=((1, 'Active'), (2, 'Inactive'), (3, 'Delete')))  # Holiday status
-#     created_on = models.DateTimeField(auto_now_add=True)  # Automatically set to the creation time
-#     created_by = models.ForeignKey(USER, on_delete=models.CASCADE, blank=True, null=True, related_name='%(class)s_created_by')  # Creator reference
-#     created_ip = models.GenericIPAddressField(null=True)  # IP address from which the holiday was created
-#     modified_on = models.DateTimeField(default=datetime.now, blank=True, null=True)  # Modified timestamp
-#     modified_by = models.ForeignKey(USER, on_delete=models.CASCADE, blank=True, null=True, related_name='%(class)s_modified_by')  # Last modifier reference
-#     modified_ip = models.GenericIPAddressField(blank=True, null=True)  # IP address of the last modifier
-#     code = models.CharField(max_length=15, db_index=True, null=True)  # Optional code for the holiday (e.g., 'NY-2025')
-    
-#     # Optional: You can add a 'category' or 'type' field instead of 'center'
-#     # category = models.CharField(max_length=100, blank=True, null=True)  # E.g., 'National', 'Religious', etc.
 
-#     def __str__(self):
-#         return self.name  # Returning the holiday name for representation
-
-#     class Meta:
-#         db_table = 'master_holiday'  # Specifying the database table name
-#         verbose_name = 'Holiday'  # Singular representation in admin
-#         verbose_name_plural = 'Holidays'  # Plural representation in admin
-        
     
 
 class UserRoleMapping(models.Model):
@@ -559,89 +493,7 @@ class UserRoleMapping(models.Model):
     def __str__(self):
         return f"{self.user.name} - {self.role.field_name} - {self.entity.name}"
     
-    
-# class RolePermissionMapping(models.Model):
-#     """
-#     Mapping table for Role-Permission associations.
-#     Permission is a string key for menu items (e.g., 'mydashboard').
-#     Adapted from UserRoleMapping structure.
-#     """
-#     role = models.ForeignKey(
-#         TicketsMasterConfiguration,
-#         on_delete=models.CASCADE,
-#         limit_choices_to={'field_type': 'Role'},
-#         related_name='permission_mappings',
-#         db_column='role_id'
-#     )
-#     permission_key = models.CharField(
-#         max_length=50,  # e.g., 'mydashboard', 'hod', etc.
-#         db_column='permission_key'
-#     )
-#     entity = models.ForeignKey(
-#         Entity,
-#         on_delete=models.CASCADE,
-#         related_name='role_permission_mappings',
-#         db_column='entity_id',
-#         null=True,
-#         blank=True  # Optional if permissions are entity-specific
-#     )
-#     is_active = models.BooleanField(default=True, db_column='is_active')
-#     created_date = models.DateTimeField(auto_now_add=True, db_column='created_date')
-#     updated_date = models.DateTimeField(auto_now=True, db_column='updated_date')
 
-#     class Meta:
-#         db_table = 'role_permission_mapping'
-#         unique_together = ('role', 'permission_key', 'entity')  # Unique per role-menu-entity
-#         ordering = ['-created_date']
-
-#     def __str__(self):
-#         return f"{self.role.field_name} - {self.permission_key} - {self.entity.name if self.entity else 'Global'}"
-
-    
-# class Holiday(models.Model):
-#     department = models.ForeignKey(
-#         TicketsMasterConfiguration,
-#         on_delete=models.SET_NULL,
-#         null=True,
-#         blank=True,
-#         related_name='holiday_departments'  # Unique
-#     )
-#     location = models.ForeignKey(
-#         TicketsMasterConfiguration,
-#         on_delete=models.SET_NULL,
-#         null=True,
-#         blank=True,
-#         related_name='holiday_locations'  # Unique
-#     )
-#     entity = models.ForeignKey(
-#         Entity,
-#         on_delete=models.SET_NULL,
-#         null=True,
-#         blank=True,
-#         related_name='holiday_entities'  # Unique
-#     )
-#     name = models.CharField(max_length=100,null=True,blank=True)  # Name of the holiday
-#     date = models.DateField()  # The actual date of the holiday
-#     description = models.TextField(blank=True, null=True)  # Optional description for the holiday
-#     status = models.SmallIntegerField(choices=((1, 'Active'), (2, 'Inactive'), (3, 'Delete')))  # Holiday status
-#     created_on = models.DateTimeField(auto_now_add=True)  # Automatically set to the creation time
-#     created_by = models.ForeignKey(USER, on_delete=models.CASCADE, blank=True, null=True, related_name='%(class)s_created_by')  # Creator reference
-#     created_ip = models.GenericIPAddressField(null=True)  # IP address from which the holiday was created
-#     modified_on = models.DateTimeField(default=datetime.now, blank=True, null=True)  # Modified timestamp
-#     modified_by = models.ForeignKey(USER, on_delete=models.CASCADE, blank=True, null=True, related_name='%(class)s_modified_by')  # Last modifier reference
-#     modified_ip = models.GenericIPAddressField(blank=True, null=True)  # IP address of the last modifier
-#     code = models.CharField(max_length=15, db_index=True, null=True)  # Optional code for the holiday (e.g., 'NY-2025')
-    
-#     # Optional: You can add a 'category' or 'type' field instead of 'center'
-#     # category = models.CharField(max_length=100, blank=True, null=True)  # E.g., 'National', 'Religious', etc.
-
-#     def __str__(self):
-#         return self.name  # Returning the holiday name for representation
-
-#     class Meta:
-#         db_table = 'master_holiday'  # Specifying the database table name
-#         verbose_name = 'Holiday'  # Singular representation in admin
-#         verbose_name_plural = 'Holidays'  # Plural representation in admin
 class Holiday(models.Model):
     # entity_ids for multiple entities (JSONField for MySQL)
     entity_ids = models.JSONField(

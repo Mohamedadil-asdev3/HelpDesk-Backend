@@ -560,6 +560,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def safe_fk_id(obj):
+    return obj.id if obj else None
+
 class LoginView(APIView):
     permission_classes = [AllowAny]
 
@@ -675,6 +678,8 @@ class LoginView(APIView):
                         "entities_ids": user.entities_ids or [],
                         "roles_ids": getattr(user, 'roles_ids', []) or [],
                         "entity_data": entity_data,
+                        "department_id": safe_fk_id(user.department_id),
+                        "location_id": safe_fk_id(user.locations),
                         "role_mappings": role_mappings,  # Added UserRoleMapping data
                     },
                     "refresh": str(refresh),
@@ -772,6 +777,8 @@ class LoginView(APIView):
                     "entities_ids": user.entities_ids or [],
                     "roles_ids": getattr(user, 'roles_ids', []) or [],
                     "entity_data": entity_data,
+                    "department_id": safe_fk_id(user.department_id),
+                    "location_id": safe_fk_id(user.locations),
                     "role_mappings": role_mappings,  # Added UserRoleMapping data
                 },
                 "refresh": str(refresh),

@@ -1,3 +1,4 @@
+
 from rest_framework import serializers
 from .models import *
 from Ticket.models import Holiday
@@ -215,11 +216,17 @@ class UserSerializer(serializers.ModelSerializer):
         allow_empty=True,
         required=False
     )
-    locations = serializers.PrimaryKeyRelatedField(
-        queryset=TicketsMasterConfiguration.objects.filter(field_type='Location'),
-        allow_null=True,
-        required=False
-    )
+    # locations = serializers.PrimaryKeyRelatedField(
+    #     queryset=TicketsMasterConfiguration.objects.filter(field_type='Location'),
+    #     allow_null=True,
+    #     required=False
+    # )
+    locations_id = serializers.PrimaryKeyRelatedField(
+    source='locations',  # ← maps to the actual model field "locations"
+    queryset=TicketsMasterConfiguration.objects.filter(field_type='Location'),
+    allow_null=True,
+    required=False
+)
     department_id = serializers.PrimaryKeyRelatedField(
         queryset=TicketsMasterConfiguration.objects.filter(field_type='Department'),
         allow_null=True,
@@ -241,7 +248,8 @@ class UserSerializer(serializers.ModelSerializer):
             "email",
             "entities_ids",
             "entities_names",
-            "locations",
+            "locations_id",
+            # "locations",
             "location_name",
             "department_id",
             "department_name",
@@ -299,6 +307,7 @@ class UserSerializer(serializers.ModelSerializer):
         if roles_ids is not None:
             instance.roles_ids = roles_ids
         return super().update(instance, validated_data)
+
 # class RoleSerializer(serializers.ModelSerializer):
 #     class Meta:
 #         model = Role
@@ -1092,405 +1101,24 @@ import logging
 User = get_user_model()
 logger = logging.getLogger(__name__)  # Define logger
 
-# class CreateTicketSerializer(serializers.ModelSerializer):
-#     # Write-only PKs (unchanged)
-#     type = serializers.PrimaryKeyRelatedField(
-#         queryset=TicketsMasterConfiguration.objects.filter(field_type='TicketType'), 
-#         write_only=True,
-#         required=False,
-#         allow_null=True
-#     )
-#     department = serializers.PrimaryKeyRelatedField(
-#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Department'), 
-#         write_only=True,
-#         required=False,
-#         allow_null=True
-#     )
-#     location = serializers.PrimaryKeyRelatedField(
-#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Location'), 
-#         write_only=True,
-#         required=False,
-#         allow_null=True
-#     )
-#     platform = serializers.PrimaryKeyRelatedField(
-#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Platform'), 
-#         write_only=True,
-#         required=False,
-#         allow_null=True
-#     )
-#     priority = serializers.PrimaryKeyRelatedField(
-#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Priority'), 
-#         write_only=True,
-#         required=False,
-#         allow_null=True
-#     )
-    
-#     # NEW: Status as writeable PK field (for updates)
-#     status = serializers.PrimaryKeyRelatedField(
-#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Status', is_active='Y'),
-#         write_only=False,  # Allow read/write
-#         required=False,
-#         allow_null=True
-#     )
-    
-#     # Category/Subcategory IDs (unchanged)
-#     category = serializers.PrimaryKeyRelatedField(
-#         queryset=TicketCategory.objects.all(),
-#         write_only=True,
-#         required=False,  # Make optional for updates
-#         allow_null=True
-#     )
-#     subcategory = serializers.PrimaryKeyRelatedField(
-#         queryset=TicketSubcategory.objects.all(),
-#         write_only=True,
-#         required=False,
-#         allow_null=True
-#     )
-
-#     # Assignment fields - Handle multiples via lists of IDs or emails (unchanged)
-#     assigned_to_type = serializers.ListField(
-#         child=serializers.ChoiceField(choices=[('user', 'User'), ('group', 'Group')]), 
-#         write_only=True, 
-#         required=False
-#     )
-#     assignee = serializers.ListField(  # Multiple user IDs or emails
-#         child=serializers.CharField(), 
-#         write_only=True, 
-#         required=False
-#     )
-#     assigned_group = serializers.ListField(  # Multiple group IDs
-#         child=serializers.IntegerField(), 
-#         write_only=True, 
-#         required=False
-#     )
-
-#     # Read-only details (unchanged)
-#     type_detail = serializers.SerializerMethodField(read_only=True)
-#     department_detail = serializers.SerializerMethodField(read_only=True)
-#     location_detail = serializers.SerializerMethodField(read_only=True)
-#     platform_detail = serializers.SerializerMethodField(read_only=True)
-#     priority_detail = serializers.SerializerMethodField(read_only=True)
-#     category_detail = serializers.SerializerMethodField(read_only=True)
-#     subcategory_detail = serializers.SerializerMethodField(read_only=True)
-#     requested_detail = serializers.SerializerMethodField(read_only=True)
-#     assignees_detail = serializers.SerializerMethodField(read_only=True)
-#     assigned_groups_detail = serializers.SerializerMethodField(read_only=True)
-#     status_detail = serializers.SerializerMethodField(read_only=True)
-    
-#     # Documents field (unchanged)
-#     documents = serializers.SerializerMethodField(read_only=True)
-    
-#     # Watchers field (unchanged)
-#     watchers = serializers.PrimaryKeyRelatedField(
-#         queryset=User.objects.all(),
-#         many=True,
-#         required=False,
-#         write_only=True
-#     )
-
-#     # Title and description - required for create, optional for update (unchanged)
-#     title = serializers.CharField(required=False, allow_blank=True)
-#     description = serializers.CharField(required=False, allow_blank=True)
+# class UserSerializer(serializers.ModelSerializer):
+#     name = serializers.SerializerMethodField()  # Computed name field
 
 #     class Meta:
-#         model = CreateTicket
-#         fields = [
-#             'id', 'ticket_no', 'title', 'description', 
-#             'type', 'type_detail', 
-#             'department', 'department_detail',
-#             'location', 'location_detail', 
-#             'platform', 'platform_detail',
-#             'priority', 'priority_detail',
-#             'category', 'category_detail',
-#             'subcategory', 'subcategory_detail',
-#             'status', 'status_detail',  # Now fully included
-#             'assigned_to_type', 'assignee', 'assignees_detail',
-#             'assigned_group', 'assigned_groups_detail',
-#             'requested', 'requested_detail', 'watchers',
-#             'documents', 'sla', 'created_date', 'updated_date', 'closed_on'
-#         ]
-#         read_only_fields = ['id', 'ticket_no', 'created_date', 'updated_date', 'closed_on', 'sla']  # Removed 'status'
+#         model = User
+#         fields = ['id', 'firstname', 'email', 'name']  # Include computed name
 
-#     def __init__(self, *args, **kwargs):
-#         # Detect if this is an update (partial update)
-#         self.partial = kwargs.pop('partial', False)
-#         super().__init__(*args, **kwargs)
-        
-#         # For create, make required fields required (unchanged)
-#         if not self.partial:
-#             self.fields['title'].required = True
-#             self.fields['description'].required = True
-#             self.fields['category'].required = True
-#             # NEW: For create, status is auto-set, so not required here
+#     def get_name(self, obj):
+#         """Compute full name"""
+#         name = (getattr(obj, 'name', None) or
+#                 getattr(obj, 'first_name', '') + ' ' + getattr(obj, 'last_name', '')).strip()
+#         return name or obj.username or obj.email
 
-#     # All get_ methods unchanged (omitted for brevity)
-#     def get_documents(self, obj):
-#         """Get documents related to the ticket"""
-#         try:
-#             documents = TicketDocument.objects.filter(ticket=obj)
-#             return [
-#                 {
-#                     'id': doc.id,
-#                     'file': doc.file.url if doc.file else None,
-#                     'original_name': doc.original_name,
-#                 }
-#                 for doc in documents
-#             ]
-#         except Exception as e:
-#             logger.error(f"Error fetching documents for ticket {obj.id}: {e}")
-#             return []
+import logging
+from django.db import transaction
+from rest_framework import serializers
 
-#     def get_type_detail(self, obj):
-#         if obj.type:
-#             return {'id': obj.type.id, 'field_name': obj.type.field_name}
-#         return None
-
-#     def get_department_detail(self, obj):
-#         if obj.department:
-#             return {'id': obj.department.id, 'field_name': obj.department.field_name}
-#         return None
-
-#     def get_location_detail(self, obj):
-#         if obj.location:
-#             return {'id': obj.location.id, 'field_name': obj.location.field_name}
-#         return None
-
-#     def get_platform_detail(self, obj):
-#         if obj.platform:
-#             return {'id': obj.platform.id, 'field_name': obj.platform.field_name}
-#         return None
-
-#     def get_priority_detail(self, obj):
-#         if obj.priority:
-#             return {'id': obj.priority.id, 'field_name': obj.priority.field_name}
-#         return None
-
-#     def get_category_detail(self, obj):
-#         if obj.category:
-#             return {'id': obj.category.id, 'category_name': obj.category.category_name}
-#         return None
-
-#     def get_subcategory_detail(self, obj):
-#         if obj.subcategory:
-#             return {'id': obj.subcategory.id, 'subcategory_name': obj.subcategory.subcategory_name}
-#         return None
-
-#     def get_requested_detail(self, obj):
-#         if obj.requested:
-#             details = self._safe_get_user_details(obj.requested, include_id=True)
-#             return details
-#         return None
-
-#     def get_status_detail(self, obj):
-#         if obj.status:
-#             return {'id': obj.status.id, 'field_name': obj.status.field_name}
-#         return None
-
-#     def get_assignees_detail(self, obj):
-#         """Get details for assignees from JSON field"""
-#         assignees = obj.assigned_users or []
-#         if assignees:
-#             return [
-#                 self._safe_get_user_details(assignee_email, include_id=True)
-#                 for assignee_email in assignees
-#             ]
-#         return []
-
-#     def get_assigned_groups_detail(self, obj):
-#         """Get details for assigned groups from JSON field"""
-#         assigned_groups = obj.assigned_groups or []
-#         if assigned_groups:
-#             return [
-#                 {
-#                     "id": group_id,
-#                     "name": self._get_group_name_by_id(group_id),
-#                     "members_count": self._get_group_members_count(group_id)
-#                 }
-#                 for group_id in assigned_groups
-#             ]
-#         return []
-
-#     # Helper methods unchanged (omitted for brevity)
-#     def _safe_get_user_details(self, user_or_email, include_id=False):
-#         """Inline alternative to get_user_details - safe user details without external import"""
-#         if isinstance(user_or_email, User):
-#             user = user_or_email
-#             email = user.email
-#         else:
-#             email = user_or_email
-#             try:
-#                 user = User.objects.get(email=email)
-#             except User.DoesNotExist:
-#                 return {'name': email, 'email': email}
-        
-#         name = (getattr(user, 'name', None) or
-#                 getattr(user, 'first_name', '') + ' ' + getattr(user, 'last_name', '')).strip() or user.username or user.email
-#         details = {'name': name, 'email': email}
-#         if include_id:
-#             details['id'] = user.id
-#         return details
-
-#     def _get_user_id_by_email(self, email):
-#         try:
-#             user = User.objects.get(email=email)
-#             return user.id
-#         except User.DoesNotExist:
-#             return None
-
-#     def _get_user_name_by_email(self, email):
-#         return self._safe_get_user_details(email)['name']
-
-#     def _get_group_name_by_id(self, group_id):
-#         try:
-#             group = UsersGroup.objects.get(id=group_id)
-#             return group.name
-#         except UsersGroup.DoesNotExist:
-#             return f"Group {group_id}"
-
-#     def _get_group_members_count(self, group_id):
-#         try:
-#             group = UsersGroup.objects.get(id=group_id)
-#             return group.get_users().count()
-#         except UsersGroup.DoesNotExist:
-#             return 0
-
-#     def validate(self, data):
-#         """Validate required fields - lenient for partial updates"""
-#         if not self.partial:
-#             # For create: enforce required fields
-#             if 'title' not in data or not data['title'].strip():
-#                 raise serializers.ValidationError({"title": "This field is required."})
-#             if 'description' not in data or not data['description'].strip():
-#                 raise serializers.ValidationError({"description": "This field is required."})
-#             if 'category' not in data or not data['category']:
-#                 raise serializers.ValidationError({"category": "This field is required."})
-#         else:
-#             # For update: optional, but validate if provided
-#             if 'title' in data and not data['title'].strip():
-#                 raise serializers.ValidationError({"title": "Title cannot be empty."})
-#             if 'description' in data and not data['description'].strip():
-#                 raise serializers.ValidationError({"description": "Description cannot be empty."})
-#             if 'category' in data and not data['category']:
-#                 raise serializers.ValidationError({"category": "Category cannot be empty."})
-        
-#         # NEW: Validate status if provided (mandatory single value from valid options)
-#         status = data.get('status')
-#         if status:
-#             if not isinstance(status, TicketsMasterConfiguration) or status.field_type != 'Status' or status.is_active != 'Y':
-#                 raise serializers.ValidationError({"status": "Invalid or inactive status provided."})
-#         # For create, status is auto-set in create(), so no further check here
-        
-#         # Handle FormData lists (unchanged)
-#         assigned_to_type_list = data.get('assigned_to_type', [])
-#         if isinstance(assigned_to_type_list, list):
-#             assigned_to_type = [t for t in assigned_to_type_list if t in ['user', 'group']]
-#             data['assigned_to_type'] = assigned_to_type
-#         else:
-#             assigned_to_type = []
-
-#         # Convert assignee IDs or emails to emails (unchanged)
-#         assignee_list = data.get('assignee', [])
-#         if isinstance(assignee_list, list):
-#             emails = []
-#             for item in assignee_list:
-#                 if isinstance(item, str) and '@' in item:
-#                     emails.append(item)
-#                 else:
-#                     try:
-#                         user_id = int(str(item))
-#                         user = User.objects.get(id=user_id)
-#                         emails.append(user.email)
-#                     except (ValueError, User.DoesNotExist):
-#                         pass
-#             data['assignee'] = emails
-#         else:
-#             data['assignee'] = []
-
-#         # Validate emails exist (only if provided) (unchanged)
-#         assignees = data['assignee']
-#         for email in assignees:
-#             if not User.objects.filter(email=email).exists():
-#                 raise serializers.ValidationError({"assignee": f"User with email {email} does not exist."})
-
-#         assigned_group_list = data.get('assigned_group', [])
-#         if isinstance(assigned_group_list, list):
-#             data['assigned_group'] = [int(g) for g in assigned_group_list if isinstance(g, (str, int))]
-#         else:
-#             data['assigned_group'] = []
-
-#         # Validate groups exist (only if provided) (unchanged)
-#         assigned_groups = data['assigned_group']
-#         for gid in assigned_groups:
-#             if not UsersGroup.objects.filter(id=gid).exists():
-#                 raise serializers.ValidationError({"assigned_group": f"Group {gid} does not exist."})
-        
-#         has_user = 'user' in assigned_to_type
-#         has_group = 'group' in assigned_to_type
-        
-#         if has_user and not assignees:
-#             raise serializers.ValidationError({"assignee": "At least one user email required if User is selected."})
-#         if has_group and not assigned_groups:
-#             raise serializers.ValidationError({"assigned_group": "At least one group ID required if Group is selected."})
-        
-#         return data
-
-#     # create method unchanged (omitted for brevity, but note: it sets status to 'New')
-
-#     def update(self, instance, validated_data):
-#         """Update ticket - partial updates supported"""
-#         with transaction.atomic():
-#             # Update basic fields (only those provided) - now includes status
-#             for attr, value in validated_data.items():
-#                 if attr not in ['assigned_to_type', 'assignee', 'assigned_group', 'watchers']:
-#                     setattr(instance, attr, value)
-            
-#             # Handle assignment changes (multiple) - FIXED: Additive unless explicitly empty
-#             assigned_to_type = validated_data.get('assigned_to_type')
-#             assignees = validated_data.get('assignee')
-#             assigned_groups = validated_data.get('assigned_group')
-            
-#             if assigned_to_type is not None:
-#                 # Only clear if explicitly empty; otherwise append
-#                 if not assigned_to_type:
-#                     instance.assigned_users = []
-#                     instance.assigned_groups = []
-#                 else:
-#                     if 'user' in assigned_to_type:
-#                         if assignees:  # Append if provided
-#                             if instance.assigned_users is None:
-#                                 instance.assigned_users = []
-#                             instance.assigned_users.extend([e for e in assignees if e not in instance.assigned_users])
-#                         # Add new to watchers
-#                         for email in assignees or []:
-#                             try:
-#                                 user = User.objects.get(email=email)
-#                                 if user not in instance.watchers.all():
-#                                     instance.watchers.add(user)
-#                             except User.DoesNotExist:
-#                                 pass
-#                     if 'group' in assigned_to_type:
-#                         if assigned_groups:  # Append if provided
-#                             if instance.assigned_groups is None:
-#                                 instance.assigned_groups = []
-#                             instance.assigned_groups.extend([g for g in assigned_groups if g not in instance.assigned_groups])
-#                         # Add new group members to watchers
-#                         for group_id in assigned_groups or []:
-#                             try:
-#                                 group = UsersGroup.objects.get(id=group_id)
-#                                 group_users = group.get_users()
-#                                 for member in group_users:
-#                                     if member not in instance.watchers.all():
-#                                         instance.watchers.add(member)
-#                             except UsersGroup.DoesNotExist:
-#                                 pass
-            
-#             # Update watchers if provided (set overrides, but could be made additive)
-#             if 'watchers' in validated_data:
-#                 instance.watchers.set(validated_data['watchers'])
-            
-#             instance.save()
-#             return instance
-
+logger = logging.getLogger(__name__)
 
 class CreateTicketSerializer(serializers.ModelSerializer):
     # Write-only PKs (unchanged)
@@ -1547,7 +1175,7 @@ class CreateTicketSerializer(serializers.ModelSerializer):
         allow_null=True
     )
 
-    # Assignment fields - Handle multiples via lists of IDs or emails (FIXED: renamed to assigned_groups)
+    # Assignment fields - Handle multiples via lists of IDs or emails (unchanged)
     assigned_to_type = serializers.ListField(
         child=serializers.ChoiceField(choices=[('user', 'User'), ('group', 'Group')]), 
         write_only=True, 
@@ -1558,7 +1186,7 @@ class CreateTicketSerializer(serializers.ModelSerializer):
         write_only=True, 
         required=False
     )
-    assigned_groups = serializers.ListField(  # Multiple group IDs (renamed)
+    assigned_group = serializers.ListField(  # Multiple group IDs
         child=serializers.IntegerField(), 
         write_only=True, 
         required=False
@@ -1605,7 +1233,7 @@ class CreateTicketSerializer(serializers.ModelSerializer):
             'subcategory', 'subcategory_detail',
             'status', 'status_detail',  # Now fully included
             'assigned_to_type', 'assignee', 'assignees_detail',
-            'assigned_groups', 'assigned_groups_detail',  # FIXED: renamed
+            'assigned_group', 'assigned_groups_detail',
             'requested', 'requested_detail', 'watchers',
             'documents', 'sla', 'created_date', 'updated_date', 'closed_on'
         ]
@@ -1683,7 +1311,7 @@ class CreateTicketSerializer(serializers.ModelSerializer):
 
     def get_status_detail(self, obj):
         if obj.status:
-            return {'id': obj.status.id, 'field_name': obj.status.field_name}
+            return {'id': obj.status.id, 'field_name': obj.status.field_name, 'field_values': obj.status.field_values}
         return None
 
     def get_assignees_detail(self, obj):
@@ -1697,17 +1325,32 @@ class CreateTicketSerializer(serializers.ModelSerializer):
         return []
 
     def get_assigned_groups_detail(self, obj):
-        """Get details for assigned groups from JSON field"""
+        """Get details for assigned groups from JSON field - Enhanced with members list"""
         assigned_groups = obj.assigned_groups or []
         if assigned_groups:
-            return [
-                {
-                    "id": group_id,
-                    "name": self._get_group_name_by_id(group_id),
-                    "members_count": self._get_group_members_count(group_id)
-                }
-                for group_id in assigned_groups
-            ]
+            groups_detail = []
+            for group_id in assigned_groups:
+                try:
+                    group = UsersGroup.objects.get(id=group_id)
+                    members = group.get_users()  # Assuming get_users() returns a queryset of User objects
+                    groups_detail.append({
+                        "id": group_id,
+                        "name": group.name,
+                        "members_count": members.count(),
+                        "members": [
+                            self._safe_get_user_details(member, include_id=True)
+                            for member in members
+                        ]
+                    })
+                except UsersGroup.DoesNotExist:
+                    logger.warning(f"Group with ID {group_id} not found for ticket {obj.id}")
+                    groups_detail.append({
+                        "id": group_id,
+                        "name": f"Group {group_id} (Not Found)",
+                        "members_count": 0,
+                        "members": []
+                    })
+            return groups_detail
         return []
 
     # Helper methods unchanged (omitted for brevity)
@@ -1725,7 +1368,9 @@ class CreateTicketSerializer(serializers.ModelSerializer):
         
         name = (getattr(user, 'name', None) or
                 getattr(user, 'first_name', '') + ' ' + getattr(user, 'last_name', '')).strip() or user.username or user.email
-        details = {'name': name, 'email': email}
+        firstname = getattr(user, 'first_name', '') or ''
+        lastname = getattr(user, 'last_name', '') or ''
+        details = {'name': name, 'email': email, 'firstname': firstname, 'lastname': lastname}
         if include_id:
             details['id'] = user.id
         return details
@@ -1780,7 +1425,7 @@ class CreateTicketSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"status": "Invalid or inactive status provided."})
         # For create, status is auto-set in create(), so no further check here
         
-        # Handle FormData lists (FIXED: renamed to assigned_groups)
+        # Handle FormData lists (unchanged)
         assigned_to_type_list = data.get('assigned_to_type', [])
         if isinstance(assigned_to_type_list, list):
             assigned_to_type = [t for t in assigned_to_type_list if t in ['user', 'group']]
@@ -1812,18 +1457,17 @@ class CreateTicketSerializer(serializers.ModelSerializer):
             if not User.objects.filter(email=email).exists():
                 raise serializers.ValidationError({"assignee": f"User with email {email} does not exist."})
 
-        # FIXED: renamed to assigned_groups
-        assigned_group_list = data.get('assigned_groups', [])
+        assigned_group_list = data.get('assigned_group', [])
         if isinstance(assigned_group_list, list):
-            data['assigned_groups'] = [int(g) for g in assigned_group_list if isinstance(g, (str, int))]
+            data['assigned_group'] = [int(g) for g in assigned_group_list if isinstance(g, (str, int))]
         else:
-            data['assigned_groups'] = []
+            data['assigned_group'] = []
 
-        # Validate groups exist (only if provided) (FIXED: renamed)
-        assigned_groups = data['assigned_groups']
+        # Validate groups exist (only if provided) (unchanged)
+        assigned_groups = data['assigned_group']
         for gid in assigned_groups:
             if not UsersGroup.objects.filter(id=gid).exists():
-                raise serializers.ValidationError({"assigned_groups": f"Group {gid} does not exist."})
+                raise serializers.ValidationError({"assigned_group": f"Group {gid} does not exist."})
         
         has_user = 'user' in assigned_to_type
         has_group = 'group' in assigned_to_type
@@ -1831,75 +1475,108 @@ class CreateTicketSerializer(serializers.ModelSerializer):
         if has_user and not assignees:
             raise serializers.ValidationError({"assignee": "At least one user email required if User is selected."})
         if has_group and not assigned_groups:
-            raise serializers.ValidationError({"assigned_groups": "At least one group ID required if Group is selected."})  # FIXED: renamed
+            raise serializers.ValidationError({"assigned_group": "At least one group ID required if Group is selected."})
         
         return data
-
     def create(self, validated_data):
-        """Create new ticket - sets status to 'New' automatically"""
+        """Create new ticket - auto set department & location from logged-in user"""
+        request = self.context.get("request")
+        user = request.user if request else None
+
         with transaction.atomic():
-            # Extract assignment fields
+            # Pop list fields
             assigned_to_type = validated_data.pop('assigned_to_type', [])
             assignees = validated_data.pop('assignee', [])
-            assigned_groups = validated_data.pop('assigned_groups', [])  # FIXED: renamed
+            assigned_groups = validated_data.pop('assigned_group', [])
             watchers = validated_data.pop('watchers', [])
 
-            # Set status to New if not provided
-            if 'status' not in validated_data:
-                new_status = TicketsMasterConfiguration.objects.filter(
-                    field_type='Status', 
-                    field_name='New', 
-                    is_active='Y'
-                ).first()
-                if new_status:
-                    validated_data['status'] = new_status
-                else:
-                    raise serializers.ValidationError({"status": "New status not found in configuration."})
+            # ✅ AUTO SET DEPARTMENT & LOCATION FROM USER
+            if user:
+                # Department
+                if not validated_data.get('department') and user.department_id:
+                    validated_data['department'] = user.department_id
 
-            # Create instance
+                # Location
+                if not validated_data.get('location') and user.locations:
+                    validated_data['location'] = user.locations
+
+            # ✅ Default Status = "New"
+            if 'status' not in validated_data:
+                try:
+                    validated_data['status'] = TicketsMasterConfiguration.objects.get(
+                        field_type='Status',
+                        field_name='New',
+                        is_active='Y'
+                    )
+                except TicketsMasterConfiguration.DoesNotExist:
+                    raise serializers.ValidationError({
+                        "status": "Default 'New' status not found."
+                    })
+
+            # Create ticket
             instance = super().create(validated_data)
 
-            # Set assignments based on type
-            instance.assigned_users = assignees if 'user' in assigned_to_type else []
-            instance.assigned_groups = assigned_groups if 'group' in assigned_to_type else []  # FIXED: renamed
+            # Save assignments
+            instance.assigned_users = assignees
+            instance.assigned_groups = assigned_groups
             instance.save()
 
-            # Add assignees and group members to watchers
-            for email in assignees:
-                try:
-                    user = User.objects.get(email=email)
-                    instance.watchers.add(user)
-                except User.DoesNotExist:
-                    pass
-
-            for gid in assigned_groups:  # FIXED: renamed
-                try:
-                    group = UsersGroup.objects.get(id=gid)
-                    for member in group.get_users():
-                        instance.watchers.add(member)
-                except UsersGroup.DoesNotExist:
-                    pass
-
+            # Add watchers
             for watcher in watchers:
                 instance.watchers.add(watcher)
 
-            instance.save()
             return instance
 
+    # def create(self, validated_data):
+    #     """Create new ticket - set default status to 'New' and handle lists"""
+    #     with transaction.atomic():
+    #         # Pop list fields to avoid passing to super().create
+    #         assigned_to_type = validated_data.pop('assigned_to_type', [])
+    #         assignees = validated_data.pop('assignee', [])  # list of emails
+    #         assigned_groups = validated_data.pop('assigned_group', [])
+    #         watchers = validated_data.pop('watchers', [])
+            
+    #         # Set default status to 'New' if not provided
+    #         if 'status' not in validated_data:
+    #             try:
+    #                 new_status = TicketsMasterConfiguration.objects.get(
+    #                     field_type='Status', 
+    #                     field_name='New', 
+    #                     is_active='Y'
+    #                 )
+    #                 validated_data['status'] = new_status
+    #             except TicketsMasterConfiguration.DoesNotExist:
+    #                 raise serializers.ValidationError({"status": "Default 'New' status not found."})
+            
+    #         # Create instance with remaining data (no lists)
+    #         instance = super().create(validated_data)
+            
+    #         # Set JSON fields for multiples
+    #         instance.assigned_users = assignees  # store emails
+    #         instance.assigned_groups = assigned_groups  # store IDs
+    #         instance.save()
+            
+    #         # Add watchers if provided
+    #         for watcher in watchers:
+    #             instance.watchers.add(watcher)
+            
+    #         return instance
+
     def update(self, instance, validated_data):
-        """Update ticket - partial updates supported (FIXED: additive unless explicitly empty, renamed field)"""
+        """Update ticket - partial updates supported"""
         with transaction.atomic():
+            # Pop list fields if present
+            assigned_to_type = validated_data.pop('assigned_to_type', None)
+            assignees = validated_data.pop('assignee', None)
+            assigned_groups = validated_data.pop('assigned_group', None)
+            watchers = validated_data.pop('watchers', None)
+            
             # Update basic fields (only those provided) - now includes status
             for attr, value in validated_data.items():
-                if attr not in ['assigned_to_type', 'assignee', 'assigned_groups', 'watchers']:  # FIXED: renamed
-                    setattr(instance, attr, value)
+                setattr(instance, attr, value)
             
             # Handle assignment changes (multiple) - FIXED: Additive unless explicitly empty
-            if 'assigned_to_type' in validated_data:
-                assigned_to_type = validated_data['assigned_to_type']
-                assignees = validated_data.get('assignee', [])
-                assigned_groups = validated_data.get('assigned_groups', [])  # FIXED: renamed
-                
+            if assigned_to_type is not None:
                 # Only clear if explicitly empty; otherwise append
                 if not assigned_to_type:
                     instance.assigned_users = []
@@ -1935,11 +1612,11 @@ class CreateTicketSerializer(serializers.ModelSerializer):
                                 pass
             
             # Update watchers if provided (set overrides, but could be made additive)
-            if 'watchers' in validated_data:
-                instance.watchers.set(validated_data['watchers'])
+            if watchers is not None:
+                instance.watchers.set(watchers)
             
             instance.save()
-            return instance       
+            return instance
 class TicketSLASerializer(serializers.ModelSerializer):
     class Meta:
         model = TicketSLA

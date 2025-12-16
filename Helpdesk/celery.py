@@ -12,9 +12,9 @@ import os
 from celery import Celery
 
 # set the default Django settings module
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Approval.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Helpdesk.settings')
 
-app = Celery('Approval')
+app = Celery('Helpdesk')
 
 # Using a string here means the worker doesn't have to serialize
 # the configuration object to child processes.

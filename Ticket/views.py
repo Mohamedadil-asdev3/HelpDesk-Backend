@@ -1,3 +1,4 @@
+
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated,AllowAny
 from rest_framework.response import Response
@@ -16,8 +17,7 @@ from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.db.models import F,Q
-from .tasks import send_email_task,handle_sla_escalation, send_email_task, parse_sla_time_to_hours, add_sla_time_skipping_holidays,escalate_to_next_approver
-
+from .tasks import send_email_task, send_email_task
 from rest_framework.parsers import MultiPartParser, FormParser
 
 User = get_user_model() 
@@ -33,7 +33,6 @@ from rest_framework.permissions import IsAuthenticatedOrReadOnly
 from django.utils import timezone
 from .models import TicketsMasterConfiguration  # Assuming the model is imported correctly
 # from  Approval.analyse import GlpiUsers
-from  Helpdesk.analyse import CeoApprovalDashboard,HODApprovalDashboardAPI
 
 # class LocationByCountryAPIView(APIView):
 #     """
@@ -2878,24 +2877,92 @@ class TicketView(APIView):
                     continue
                 seen_ids.add(ticket.id)
                 
-                # assigned_users is already a list from JSONField
-                assigned_users = ticket.assigned_users if ticket.assigned_users else []
+                # assigned_users is already a list from JSONField (assuming list of user IDs or emails)
+                assigned_user_ids = ticket.assigned_users if ticket.assigned_users else []
                 
-                # assigned_groups is already a list from JSONField
-                assigned_groups = ticket.assigned_groups if ticket.assigned_groups else []
+                # assigned_groups is already a list from JSONField (list of group IDs)
+                assigned_group_ids = ticket.assigned_groups if ticket.assigned_groups else []
                 
-                # If no direct assigned_users but assigned_groups exist, add group members to assigned_users
-                if not assigned_users and assigned_groups:
-                    group_emails = []
-                    for group_id in assigned_groups:
+                # Collect all assignees_detail: list of user objects from direct assignees and group members
+                assignees_detail = []
+                seen_assignee_ids = set()  # To deduplicate across direct and groups
+                
+                # Handle direct assignees
+                if assigned_user_ids:
+                    # Assuming assigned_user_ids is list of integers (user IDs); adjust if emails
+                    try:
+                        # Filter users by IDs
+                        direct_users = User.objects.filter(id__in=assigned_user_ids).values(
+                            'id', 'first_name', 'last_name', 'email', 'username'
+                        )
+                        for user_data in direct_users:
+                            user_id = user_data['id']
+                            if user_id not in seen_assignee_ids:
+                                seen_assignee_ids.add(user_id)
+                                assignees_detail.append({
+                                    "id": user_id,
+                                    "firstname": user_data['first_name'] or user_data['username'] or "Unknown",
+                                    "lastname": user_data['last_name'] or "",
+                                    "email": user_data['email'],
+                                    "name": f"{user_data['first_name']} {user_data['last_name']}".strip() or user_data['username'] or "Unknown"
+                                })
+                    except Exception as e:
+                        # If IDs are invalid or emails, handle accordingly
+                        print(f"Error fetching direct assignees: {e}")
+                
+                # Handle group assignees: add group members if no direct or to supplement
+                if assigned_group_ids:
+                    for group_id in assigned_group_ids:
                         try:
                             group = UsersGroup.objects.get(id=group_id)
                             group_members = group.get_users()
-                            group_emails.extend([user.email for user in group_members])
+                            for member in group_members:
+                                member_id = member.id
+                                if member_id not in seen_assignee_ids:
+                                    seen_assignee_ids.add(member_id)
+                                    assignees_detail.append({
+                                        "id": member_id,
+                                        "firstname": getattr(member, 'first_name', None) or getattr(member, 'name', None) or getattr(member, 'username', "Unknown"),
+                                        "lastname": getattr(member, 'last_name', "") or "",
+                                        "email": member.email,
+                                        "name": f"{getattr(member, 'first_name', '')} {getattr(member, 'last_name', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
+                                    })
                         except UsersGroup.DoesNotExist:
                             pass
-                    # Deduplicate emails
-                    assigned_users = list(set(group_emails))
+                        except Exception as e:
+                            print(f"Error fetching group members: {e}")
+                
+                # Fallback: if still no assignees, use assigned_group details if present
+                assigned_groups_detail = []
+                if not assignees_detail and ticket.assigned_group:
+                    assigned_groups_detail = [{
+                        "id": ticket.assigned_group.id,
+                        "name": ticket.assigned_group.name,
+                        "members": [],  # Empty if not populated
+                        "members_count": 0
+                    }]
+                elif assigned_group_ids:
+                    # Optionally populate full group details with members
+                    for group_id in assigned_group_ids:
+                        try:
+                            group = UsersGroup.objects.get(id=group_id)
+                            group_members = group.get_users()
+                            assigned_groups_detail.append({
+                                "id": group.id,
+                                "name": group.name,
+                                "members": [  # List of member dicts
+                                    {
+                                        "id": m.id,
+                                        "firstname": getattr(m, 'first_name', None) or getattr(m, 'name', None) or getattr(m, 'username', "Unknown"),
+                                        "lastname": getattr(m, 'last_name', "") or "",
+                                        "email": m.email,
+                                        "name": f"{getattr(m, 'first_name', '')} {getattr(m, 'last_name', '')}".strip() or getattr(m, 'username', "Unknown") or getattr(m, 'name', "Unknown")
+                                    } for m in group_members
+                                ],
+                                "members_count": len(group_members)
+                            })
+                        except UsersGroup.DoesNotExist:
+                            pass
                 
                 tickets_data.append({
                     "id": ticket.id,
@@ -2944,9 +3011,9 @@ class TicketView(APIView):
                         ) if ticket.requested else None,
                         "email": ticket.requested.email if ticket.requested else None
                     } if ticket.requested else None,
-                    "assignees": assigned_users,
-                    "assignee": ticket.assignee,  # Legacy
-                    "assigned_groups": assigned_groups,
+                    "assignees_detail": assignees_detail,  # List of assignee objects (direct + group members)
+                    "assignee": ticket.assignee,  # Legacy single assignee
+                    "assigned_groups_detail": assigned_groups_detail,  # Full group details if needed
                     "assigned_group": {
                         "id": ticket.assigned_group.id if ticket.assigned_group else None,
                         "name": ticket.assigned_group.name if ticket.assigned_group else None
@@ -4361,14 +4428,21 @@ class CreateTicketView(APIView):
         if not serializer.is_valid():
             logger.error(f"Validation errors: {serializer.errors}")
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        ticket = serializer.save()
-    
+        
+        ticket = serializer.save()  # ← Ticket is saved here
+
+        # === ADD THESE 3 LINES HERE ===
+        from Ticket.tasks import send_ticket_created_notification
+        send_ticket_created_notification.delay(ticket.id)
+        logger.info(f"Notification task queued for new ticket {ticket.ticket_no} (ID: {ticket.id})")
+        # ===============================
+
         # Attachments
         for f in request.FILES.getlist("documents"):
             TicketDocument.objects.create(ticket=ticket, file=f)
-    
+
         ticket_data = CreateTicketSerializer(ticket, context={"request": request}).data
-        
+       
         # Updated assigned_to for multiple
         users_detail = serializer.get_assignees_detail(ticket)
         groups_detail = serializer.get_assigned_groups_detail(ticket)
@@ -4377,9 +4451,9 @@ class CreateTicketView(APIView):
             "users": users_detail,
             "groups": groups_detail
         }
-        
+       
         logger.info(f"Created ticket {ticket.id} with type: {assigned_to_type}, detail: {assigned_to_detail}")
-        
+       
         return Response({
             "success": True,
             "ticket_id": ticket.id,
@@ -4391,12 +4465,12 @@ class CreateTicketView(APIView):
             },
             "message": "Ticket created successfully."
         }, status=status.HTTP_201_CREATED)
-    
+   
     def put(self, request, pk=None):
         """Update ticket - supports partial updates"""
         if not pk:
             return Response({"error": "Ticket ID (pk) is required"}, status=status.HTTP_400_BAD_REQUEST)
-        
+       
         # Robust lookup: Try ticket_no first (str), then id (int) - prioritizes ticket_no for URL-based access
         ticket = None
         try:
@@ -4404,7 +4478,7 @@ class CreateTicketView(APIView):
             ticket = CreateTicket.objects.get(ticket_no=pk)
         except CreateTicket.DoesNotExist:
             pass
-        
+       
         if not ticket:
             try:
                 # Fallback to id (int)
@@ -4412,37 +4486,37 @@ class CreateTicketView(APIView):
                 ticket = CreateTicket.objects.get(id=ticket_id)
             except (ValueError, CreateTicket.DoesNotExist):
                 return Response({"error": f"Ticket not found with ID '{pk}' or ticket_no '{pk}'"}, status=status.HTTP_404_NOT_FOUND)
-        
+       
         if not self._can_view_ticket(ticket, request.user):
             return Response({"detail": "Not permitted."}, status=status.HTTP_403_FORBIDDEN)
-        
+       
         # NEW: Log old status for change tracking
         old_status = ticket.status
         logger.info(f"Update request data for ticket {pk} (resolved to {ticket.id}): {request.data}")
-        
+       
         serializer = CreateTicketSerializer(
-            instance=ticket, 
-            data=request.data, 
+            instance=ticket,
+            data=request.data,
             partial=True,
             context={"request": request}
         )
         if not serializer.is_valid():
             logger.error(f"Update validation errors: {serializer.errors}")
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
+       
         updated_ticket = serializer.save()
-        
+       
         # NEW: Log status change if it occurred
         if old_status != updated_ticket.status:
             logger.info(f"Status changed for ticket {updated_ticket.id}: {old_status.field_name} -> {updated_ticket.status.field_name}")
             # TODO: Trigger notifications or workflows here if needed
-        
+       
         # Attachments for update (if provided)
         for f in request.FILES.getlist("documents"):
             TicketDocument.objects.create(ticket=updated_ticket, file=f)
-        
+       
         ticket_data = CreateTicketSerializer(updated_ticket, context={"request": request}).data
-        
+       
         return Response({
             "success": True,
             "ticket_id": updated_ticket.id,
@@ -4774,22 +4848,12 @@ class TicketActionView(APIView):
             comments = request.data.get("comments", "")
             user = request.user
             reassigned_user_id = request.data.get("reassign_to")
-
             if action not in self.VALID_ACTIONS:
                 return Response({"error": "Invalid action"}, status=400)
 
-            # current_log = TicketApprovalLog.objects.filter(ticket=ticket, is_current_level=True).first()
-            # if not current_log:
-            #     return Response({"error": "No active approver level found."}, status=400)
-
-            # expected_approver = getattr(ticket.sla, f"Approver_level{current_log.current_level}_user", None)
-            # if not expected_approver or expected_approver.id != user.id:
-            #     return Response({"error": "You are not authorized for this level."}, status=403)
             current_log = TicketApprovalLog.objects.filter(ticket=ticket, is_current_level=True).first()
             if not current_log:
                 return Response({"error": "No active approver level found."}, status=400)
-
-            # FIXED: Now checks the LOG, not the SLA table
             if current_log.created_by_id != user.id:
                 return Response({"error": "You are not the assigned approver for this level."}, status=403)
 
@@ -4797,45 +4861,23 @@ class TicketActionView(APIView):
 
             # ---------------- APPROVE ----------------
             if action == "approve":
-                # Calculate saved time for next approver
-                # saved_seconds = 0
-                # if current_log.sla_end_time and current_log.sla_end_time > now:
-                #     saved_seconds = int((current_log.sla_end_time - now).total_seconds())
                 saved_seconds = 0
-
-                # 1. Use frozen time from on-hold (if any)
+                # Use frozen time from on-hold (if any)
                 if getattr(current_log, 'remaining_sla_seconds', None) is not None:
                     saved_seconds = current_log.remaining_sla_seconds or 0
-                # === FIX: Calculate on-hold duration if it was on hold ===
+                # Calculate on-hold duration if it was on hold
                 if current_log.onhold_start and current_log.sla_end_time:
-                    # Frozen time when on-hold started
                     saved_seconds = int((current_log.sla_end_time - current_log.onhold_start).total_seconds())
-                    
                     # Record on-hold duration
                     onhold_duration = int((now - current_log.onhold_start).total_seconds())
                     current_log.total_onhold_seconds = (current_log.total_onhold_seconds or 0) + onhold_duration
                     current_log.onhold_start = None
                     current_log.save()
-
                 elif current_log.sla_end_time:
                     # Normal case: not on-hold
                     if current_log.sla_end_time > now:
                         saved_seconds = int((current_log.sla_end_time - now).total_seconds())
-
                 saved_seconds = max(0, saved_seconds)
-                # 2. Calculate from created_on (main fix!)
-                # saved_seconds = 0 wrong
-                # if current_log.sla_end_time and current_log.sla_end_time > now:
-                #     saved_seconds = int((current_log.sla_end_time - now).total_seconds())
-                # saved_seconds = max(0, saved_seconds)
-                # if saved_seconds == 0 and current_log.created_on:
-                #     time_field = f"Approver_level{current_log.current_level}_time"
-                #     sla_time_str = getattr(ticket.sla, time_field, "1 hour")
-                #     original_seconds = int(parse_sla_time_to_hours(sla_time_str) * 3600)
-                #     used_seconds = int((now - current_log.created_on).total_seconds())
-                #     saved_seconds = max(0, original_seconds - used_seconds)
-
-                # saved_seconds = max(0, saved_seconds)
 
                 current_log.status = "Approved"
                 current_log.approval_status = "Approved"
@@ -4847,7 +4889,6 @@ class TicketActionView(APIView):
 
                 # Check if this was the FINAL approver
                 next_user = getattr(ticket.sla, f"Approver_level{current_log.current_level + 1}_user", None)
-
                 if not next_user:
                     # FINAL APPROVAL → AUTO CLOSE THE TICKET
                     closed_status = self._get_master_status("Closed")
@@ -4855,7 +4896,6 @@ class TicketActionView(APIView):
                         ticket.status = closed_status
                         ticket.closed_on = timezone.now()  # Optional: add this field if you want
                         ticket.save()
-
                         # Send closure email to requester
                         template = TicketEmailTemplate.objects.filter(email_event="Ticket Closed", is_active="Y").first()
                         if template and ticket.requested.email:
@@ -4868,13 +4908,11 @@ class TicketActionView(APIView):
                             })
                             html = Template(template.email_template).render(ctx)
                             send_email_task.delay([ticket.requested.email], f"Ticket #{ticket.ticket_no} Closed", html)
-
                         return Response({
                             "success": True,
                             "message": "Ticket approved and CLOSED successfully!",
                             "final_action": True
                         }, status=200)
-
                 # Not final → escalate with bonus time
                 escalate_to_next_approver(
                     ticket,
@@ -4882,11 +4920,9 @@ class TicketActionView(APIView):
                     reason="USER_APPROVED",
                     bonus_seconds=saved_seconds
                 )
-
                 # Update status to Pending (still needs more approvals)
                 ticket.status = self._get_master_status("Approved") or self._get_master_status("Pending")
                 ticket.save()
-
                 return Response({
                     "success": True,
                     "message": "Approved successfully!",
@@ -4894,19 +4930,6 @@ class TicketActionView(APIView):
                 }, status=200)
 
             # ---------------- REJECT ----------------
-    #         elif action == "reject":
-    #             current_log.status = "Rejected"
-    #             current_log.approval_status = "Rejected"
-    #             current_log.comments = comments
-    #             current_log.approved_by_id = user.id
-    #             current_log.approved_on = now
-    #             current_log.is_current_level = False
-    #             current_log.save()
-    #             ticket.status = self._get_master_status("Rejected")
-    #             return Response({
-    #     "success": True,
-    #     "message": "Ticket rejected successfully!"
-    # }, status=200)
             elif action == "reject":
                 current_log.status = "Rejected"
                 current_log.approval_status = "Rejected"
@@ -4915,16 +4938,13 @@ class TicketActionView(APIView):
                 current_log.approved_on = now
                 current_log.is_current_level = False
                 current_log.save()
-
                 # Update ticket status
                 rejected_status = self._get_master_status("Rejected")
                 if rejected_status:
                     ticket.status = rejected_status
                     ticket.save()
-
                 # SEND REJECTION EMAIL
                 template = TicketEmailTemplate.objects.filter(email_event="Ticket Rejected", is_active="Y").first()
-
                 if template and ticket.requested.email:
                     # SAFE WAY — uses your actual User fields
                     rejected_by_name = f"{user.firstname or ''} {user.realname or ''}".strip()
@@ -4932,7 +4952,6 @@ class TicketActionView(APIView):
                         rejected_by_name = user.email.split('@')[0]  # fallback to username part
                     elif len(rejected_by_name.strip()) < 2:
                         rejected_by_name = user.email
-
                     ctx = Context({
                         'firstname': ticket.requested.firstname or ticket.requested.email.split('@')[0],
                         'realname': getattr(ticket.requested, 'realname', '') or '',
@@ -4945,113 +4964,48 @@ class TicketActionView(APIView):
                         'year': timezone.now().year,
                     })
                     html = Template(template.email_template).render(ctx)
-
                     send_email_task.delay(
                         [ticket.requested.email],
                         f"Ticket #{ticket.ticket_no} Rejected",
                         html
                     )
-
                     # CC watchers
                     watcher_emails = [w.email for w in ticket.watchers.all() if w.email]
                     if watcher_emails:
                         send_email_task.delay(watcher_emails, f"Ticket #{ticket.ticket_no} Rejected", html)
-
                     logger.info(f"Ticket #{ticket.ticket_no} rejected by {user.email} → Email sent")
                 else:
                     logger.warning("Ticket Rejected template missing or requester has no email")
-
                 return Response({
                     "success": True,
                     "message": "Ticket rejected successfully and requester notified!"
                 }, status=200)
 
-            # ---------------- REASSIGN ----------------
-            # elif action == "reassign":
-            #     if not reassigned_user_id:
-            #         return Response({"error": "No user for reassignment."}, status=400)
-            #     try:
-            #         new_user = User.objects.get(id=reassigned_user_id)
-            #     except User.DoesNotExist:
-            #         return Response({"error": "Reassigned user does not exist."}, status=400)
-            #     current_log.status = "Reassigned"
-            #     current_log.approval_status = "Reassigned"
-            #     current_log.comments = comments
-            #     current_log.approved_by_id = user.id
-            #     current_log.approved_on = now
-            #     current_log.is_current_level = False
-            #     current_log.save()
-            #     TicketApprovalLog.objects.update_or_create(
-            #         ticket=ticket,
-            #         current_level=current_log.current_level,
-            #         defaults={
-            #             'sla': ticket.sla,
-            #             'created_by_id': new_user.id,
-            #             'status': "Pending",
-            #             'approval_status': "Pending",
-            #             'is_current_level': True,
-            #             'comments': f"Ticket reassigned by {user.email} to {new_user.email}"
-            #         }
-            #     )
-            #     ticket.status = self._get_master_status("Re-assigned")
-                        # ---------------- REASSIGN (ON LEAVE / UNREACHABLE) ----------------
-                        # ---------------- REASSIGN (FIXED) ----------------
-                        # ---------------- REASSIGN (FINAL FIXED – WORKS WITH EMAIL OR FIRSTNAME) ----------------
-                        # ---------------- REASSIGN (FINAL FIXED – NO ERRORS) ----------------
-                        # ---------------- REASSIGN (FINAL FIXED – ONLY NEW USER CAN APPROVE) ----------------
-            # elif action == "reassign":-in this block when the approver reassign in the sla table it changed
-            #     if not reassigned_user_id:
-            #         return Response({"error": "Please enter user email"}, status=400)
-
-            #     email = reassigned_user_id.strip()
-
-            #     try:
-            #         new_user = User.objects.get(email__iexact=email)
-            #     except User.DoesNotExist:
-            #         return Response({"error": f"No user found with email '{email}'"}, status=400)
-
-            #     # Only manager or current approver can reassign
-            #     if not (is_privileged(user) or current_log.created_by_id == user.id):
-            #         return Response({"error": "Only manager or current approver can reassign"}, status=403)
-
-            #     old_user = current_log.created_by
-
-            #     # ←←← THIS IS THE KEY FIX — UPDATE SLA TO POINT TO NEW USER
-            #     with transaction.atomic():
-            #         # Update the SLA field for this level
-            #         level_field = f"Approver_level{current_log.current_level}_user"
-            #         setattr(ticket.sla, level_field, new_user)
-            #         ticket.sla.save()
-
-            #         # Update the log
-            #         current_log.created_by = new_user
-            #         current_log.comments = f"Reassigned from {old_user.email if old_user else 'unknown'} to {new_user.email} by {user.email}"
-            #         current_log.save()
-
-            #         # Reset SLA timer
-            #         hours = parse_sla_time_to_hours(getattr(ticket.sla, f"Approver_level{current_log.current_level}_time"))
-            #         current_log.sla_end_time = add_sla_time_skipping_holidays(timezone.now(), hours)
-            #         current_log.save()
-
-            #     ticket.status = self._get_master_status("Pending")
-            #     ticket.save()
-
-                # Mail to new approver
+            # ---------------- REASSIGN (SUPPORTS USER OR GROUP ID) ----------------
             elif action == "reassign":
                 if not reassigned_user_id:
-                    return Response({"error": "Please enter user email"}, status=400)
+                    return Response({"error": "Please select a user or group"}, status=400)
 
-                # email = reassigned_user_id.strip()
+                target_id = int(reassigned_user_id)
+                new_user = None
 
-                # try:
-                #     new_user = User.objects.get(email__iexact=email)
-                # except User.DoesNotExist:
-                #     return Response({"error": f"No user found with email '{email}'"}, status=400)
+                # Try user first
                 try:
-                    new_user = User.objects.get(id=int(reassigned_user_id))
+                    new_user = User.objects.get(id=target_id)
                 except User.DoesNotExist:
-                    return Response({"error": "Selected user does not exist"}, status=400)
+                    # Fallback: Assume group ID and pick a member
+                    try:
+                        from .models import Group  # Adjust import if Group is elsewhere (e.g., django.contrib.auth.models.Group)
+                        group = Group.objects.get(id=target_id)
+                        if not hasattr(group, 'members') or group.members.count() == 0:  # Adjust if members is a method/relation
+                            return Response({"error": "Group has no active members"}, status=400)
+                        new_user = group.members.first()  # Or randomize: group.members.order_by('?').first()
+                        logger.info(f"Reassigned to group {group.name} → Selected user {new_user.email}")
+                    except Group.DoesNotExist:
+                        return Response({"error": "Selected user or group does not exist"}, status=400)
 
+                if not new_user:
+                    return Response({"error": "No valid assignee found"}, status=400)
 
                 # Only manager or current approver can reassign
                 if not (is_privileged(user) or current_log.created_by_id == user.id):
@@ -5059,41 +5013,35 @@ class TicketActionView(APIView):
 
                 old_user = current_log.created_by
 
-                # ONLY CHANGE THE LOG — DO NOT TOUCH THE SLA TABLE!
-                # current_log.created_by = new_user
-                # current_log.status = "Reassigned"           # ← ADD THIS LINE
-                # current_log.approval_status = "Reassigned"
-                # # current_log.is_current_level = False
-                # current_log.is_current_level = True
-                # current_log.sla_end_time = current_log.sla_end_time  # Keeps the exact same deadline
-                # current_log.comments = f"Reassigned from {old_user.email if old_user else 'unknown'} to {new_user.email} by {user.email}"
-                # current_log.save()
+                # Update only the log (not SLA table)
                 current_log.created_by = new_user
                 current_log.status = "Reassigned"
                 current_log.approval_status = "Reassigned"
                 current_log.comments = f"Reassigned from {old_user.email if old_user else 'unknown'} to {new_user.email} by {user.email}"
-                current_log.is_current_level = True                    # ← New user is now active
-                current_log.sla_end_time = current_log.sla_end_time    # ← Keep exact same SLA time (including bonus)
-                current_log.save()
-                if current_log.sla_end_time:
-                        delay = max(1, int((current_log.sla_end_time - timezone.now()).total_seconds()))
-                        handle_sla_escalation.apply_async(
-                            args=[ticket.id, current_log.current_level],
-                            countdown=delay
-                        )
-                # Reset SLA timer for new person
-                # hours = parse_sla_time_to_hours(getattr(ticket.sla, f"Approver_level{current_log.current_level}_time"))
-                # current_log.sla_end_time = add_sla_time_skipping_holidays(timezone.now(), hours)
-                # current_log.save()
-                # === FIX: Calculate on-hold duration before reassigning ===
+                current_log.is_current_level = True  # New assignee is now active
+                current_log.sla_end_time = current_log.sla_end_time  # Keep exact same SLA time (including bonus)
+
+                # Handle any active on-hold before reassign
                 if current_log.onhold_start:
                     onhold_duration = int((now - current_log.onhold_start).total_seconds())
                     current_log.total_onhold_seconds = (current_log.total_onhold_seconds or 0) + onhold_duration
                     current_log.onhold_start = None
                     current_log.save()
 
+                current_log.save()
+
+                # Restart escalation timer for new assignee
+                if current_log.sla_end_time:
+                    delay = max(1, int((current_log.sla_end_time - timezone.now()).total_seconds()))
+                    handle_sla_escalation.apply_async(
+                        args=[ticket.id, current_log.current_level],
+                        countdown=delay
+                    )
+
                 ticket.status = self._get_master_status("Pending")
                 ticket.save()
+
+                # Email to new approver
                 template = TicketEmailTemplate.objects.filter(email_event="Reassigned", is_active="Y").first()
                 if template and new_user.email:
                     ctx = Context({
@@ -5110,7 +5058,7 @@ class TicketActionView(APIView):
                     send_email_task.delay([new_user.email], f"Reassigned: Approval Request - Ticket #{ticket.ticket_no}", html)
 
                 # Notify old approver
-                if old_user and old_user.email:
+                if old_user and old_user.email and old_user.id != new_user.id:
                     send_email_task.delay([old_user.email], f"Ticket #{ticket.ticket_no} Reassigned", f"You are no longer the approver — reassigned to {new_user.email}")
 
                 return Response({
@@ -5119,23 +5067,18 @@ class TicketActionView(APIView):
                 }, status=200)
 
             # ---------------- ON-HOLD ----------------
-                        # ON-HOLD MAIL – FULL DATA (NO MORE BLANK FIELDS)
             elif action == "onhold":
                 if current_log.onhold_start:
                     return Response({"error": "Ticket is already on hold"}, status=400)
-
                 current_log.onhold_start = now
                 current_log.status = "On-Hold"
                 current_log.approval_status = "On-Hold"
-                current_log.comments = comments 
+                current_log.comments = comments
                 current_log.save()
-
                 ticket.status = self._get_master_status("On-Hold")
                 ticket.save()
-
                 template = TicketEmailTemplate.objects.filter(email_event="On Hold", is_active="Y").first()
                 recipients = [ticket.requested.email] + [w.email for w in ticket.watchers.all() if w.email]
-
                 if template and recipients:
                     ctx = Context({
                         'current_difference': 'several',
@@ -5149,21 +5092,18 @@ class TicketActionView(APIView):
                         'year': timezone.now().year,
                     })
                     html = Template(template.email_template).render(ctx)
-                    send_email_task.delay(recipients, f"Ticket #{ticket.ticket_no} On Hold", html)
-
+                    send_email_task.delay(recipient, f"Ticket #{ticket.ticket_no} On Hold", html)
                 return Response({"success": "On hold - mail sent"}, status=200)
 
             # ---------------- UNHOLD (RESUME) ----------------
             elif action == "unhold":
                 if not current_log.onhold_start:
                     return Response({"error": "Ticket is not on hold"}, status=400)
-
                 now = timezone.now()
-                
+
                 # Calculate how much time was frozen
                 frozen_time_left = int((current_log.sla_end_time - current_log.onhold_start).total_seconds())
                 onhold_duration = int((now - current_log.onhold_start).total_seconds())
-
                 # Record total on-hold time
                 current_log.total_onhold_seconds = (current_log.total_onhold_seconds or 0) + onhold_duration
                 current_log.onhold_start = None
@@ -5172,12 +5112,10 @@ class TicketActionView(APIView):
                 current_log.is_current_level = True
                 current_log.comments = comments or "Approval process resumed"
                 current_log.save()
-
                 # Resume SLA: Give back the frozen time
                 new_sla_end_time = now + timedelta(seconds=max(0, frozen_time_left))
                 current_log.sla_end_time = new_sla_end_time
                 current_log.save()
-
                 if current_log.sla_end_time:
                     delay = max(1, int((current_log.sla_end_time - timezone.now()).total_seconds()))
                     handle_sla_escalation.apply_async(
@@ -5189,29 +5127,39 @@ class TicketActionView(APIView):
                 if pending_status:
                     ticket.status = pending_status
                     ticket.save()
-
-                # Optional: Send resume email
-                # template = TicketEmailTemplate.objects.filter(email_event="Resumed", is_active="Y").first()
-                # if template:
-                #     recipients = [ticket.requested.email] + [w.email for w in ticket.watchers.all() if w.email]
-                #     ctx = Context({
-                #         'firstname': ticket.requested.firstname or ticket.requested.email.split('@')[0],
-                #         'ticket_no': ticket.ticket_no,
-                #         'name': ticket.title or "Your request",
-                #         'ticket_url': f"http://yourdomain.com/tickets/{ticket.ticket_no}",
-                #         'mail_signature': 'IT Support Team',
-                #     })
-                #     html = Template(template.email_template).render(ctx)
-                #     send_email_task.delay(recipients, f"Ticket #{ticket.ticket_no} Resumed", html)
-
                 return Response({
                     "success": True,
                     "message": "Approval resumed — timer restarted with remaining time",
                     "remaining_seconds": max(0, frozen_time_left)
                 }, status=200)
 
+            # ---------------- FOLLOWUP ---------------- (Basic implementation: Add log entry without changing status/timer)
+            elif action == "followup":
+                # Create a new followup log (non-approval, just tracking)
+                from .models import TicketApprovalLog  # Ensure import if needed
+                followup_log = TicketApprovalLog.objects.create(
+                    ticket=ticket,
+                    sla=ticket.sla,
+                    current_level=current_log.current_level,
+                    created_by=user,
+                    status="Follow-Up",
+                    approval_status="Follow-Up",
+                    comments=comments or "Follow-up note added",
+                    is_current_level=False,  # Not blocking approval
+                )
+                return Response({
+                    "success": True,
+                    "message": "Follow-up note added successfully!",
+                    "log_id": followup_log.id
+                }, status=200)
+
+            else:
+                return Response({"error": "Action not implemented"}, status=400)
+
         except Exception as e:
+            logger.error(f"Ticket action error for {ticket_no}: {str(e)}")
             return Response({"error": str(e)}, status=500)
+
 
 
 class WatcherGroupListCreateView(APIView):
@@ -6117,5 +6065,3 @@ class PlatformAPIView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
