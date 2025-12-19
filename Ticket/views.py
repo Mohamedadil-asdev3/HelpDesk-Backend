@@ -2819,9 +2819,614 @@ User = get_user_model()
 #         }
  
 #         return Response(data, status=status.HTTP_200_OK)
+
+# class TicketView(APIView):
+#     def get(self, request):
+#         """Get user ticket stats with New, Solved, and Closed statuses"""
+#         # Get query parameters
+#         start_date_str = request.query_params.get('start_date')
+#         end_date_str = request.query_params.get('end_date')
+#         search = request.query_params.get('search', '').strip()
+#         entity_id = request.query_params.get('entity_id')
+ 
+#         # Get user's email for assignee matching
+#         user_email = request.user.email
+        
+#         # Base querysets for user - focus on requested tickets for "MY REQUEST"
+#         user_requested_qs = CreateTicket.objects.filter(requested=request.user)
+        
+#         # Apply entity filter
+#         if entity_id:
+#             try:
+#                 entity_id = int(entity_id)
+#                 user_requested_qs = user_requested_qs.filter(entity_id=entity_id)
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid entity_id"}, status=400)
+ 
+#         # Apply date filter
+#         start_date = end_date = None
+#         if start_date_str and end_date_str:
+#             try:
+#                 start_date = timezone.make_aware(
+#                     timezone.datetime.strptime(start_date_str, '%Y-%m-%d')
+#                 )
+#                 end_date = timezone.make_aware(
+#                     timezone.datetime.strptime(end_date_str, '%Y-%m-%d')
+#                 ) + timedelta(days=1) - timedelta(seconds=1)
+ 
+#                 user_requested_qs = user_requested_qs.filter(
+#                     created_date__gte=start_date, created_date__lte=end_date
+#                 )
+#             except ValueError:
+#                 return Response({"error": "Invalid date format. Use YYYY-MM-DD."},
+#                                 status=status.HTTP_400_BAD_REQUEST)
+ 
+#         # Apply search filter
+#         if search:
+#             search_filter = Q(title__icontains=search) | Q(description__icontains=search)
+#             user_requested_qs = user_requested_qs.filter(search_filter)
+
+#         # Helper function to get tickets by status
+#         def get_tickets_by_status(queryset, status_name):
+#             tickets = queryset.filter(status__field_name__iexact=status_name).distinct().order_by("-ticket_no")
+            
+#             # Simple serialization - no limit, returns all, dedup by id
+#             tickets_data = []
+#             seen_ids = set()
+#             for ticket in tickets:
+#                 if ticket.id in seen_ids:
+#                     continue
+#                 seen_ids.add(ticket.id)
+                
+#                 # assigned_users is already a list from JSONField (assuming list of user IDs or emails)
+#                 assigned_user_ids = ticket.assigned_users if ticket.assigned_users else []
+                
+#                 # assigned_groups is already a list from JSONField (list of group IDs)
+#                 assigned_group_ids = ticket.assigned_groups if ticket.assigned_groups else []
+                
+#                 # Collect all assignees_detail: list of user objects from direct assignees and group members
+#                 assignees_detail = []
+#                 seen_assignee_ids = set()  # To deduplicate across direct and groups
+                
+#                 # Handle direct assignees
+#                 if assigned_user_ids:
+#                     # Assuming assigned_user_ids is list of integers (user IDs); adjust if emails
+#                     try:
+#                         # Filter users by IDs
+#                         direct_users = User.objects.filter(id__in=assigned_user_ids).values(
+#                             'id', 'first_name', 'realname', 'email', 'username'
+#                         )
+#                         for user_data in direct_users:
+#                             user_id = user_data['id']
+#                             if user_id not in seen_assignee_ids:
+#                                 seen_assignee_ids.add(user_id)
+#                                 assignees_detail.append({
+#                                     "id": user_id,
+#                                     "firstname": user_data['first_name'] or user_data['username'] or "Unknown",
+#                                     "lastname": user_data['realname'] or "",
+#                                     "email": user_data['email'],
+#                                     "name": f"{user_data['first_name']} {user_data['realname']}".strip() or user_data['username'] or "Unknown"
+#                                 })
+#                     except Exception as e:
+#                         # If IDs are invalid or emails, handle accordingly
+#                         print(f"Error fetching direct assignees: {e}")
+                
+#                 # Handle group assignees: add group members if no direct or to supplement
+#                 if assigned_group_ids:
+#                     for group_id in assigned_group_ids:
+#                         try:
+#                             group = UsersGroup.objects.get(id=group_id)
+#                             group_members = group.get_users()
+#                             for member in group_members:
+#                                 member_id = member.id
+#                                 if member_id not in seen_assignee_ids:
+#                                     seen_assignee_ids.add(member_id)
+#                                     assignees_detail.append({
+#                                         "id": member_id,
+#                                         "firstname": getattr(member, 'first_name', None) or getattr(member, 'name', None) or getattr(member, 'username', "Unknown"),
+#                                         "lastname": getattr(member, 'realname', "") or "",
+#                                         "email": member.email,
+#                                         "name": f"{getattr(member, 'first_name', '')} {getattr(member, 'realname', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
+#                                     })
+#                         except UsersGroup.DoesNotExist:
+#                             pass
+#                         except Exception as e:
+#                             print(f"Error fetching group members: {e}")
+                
+#                 # Fallback: if still no assignees, use assigned_group details if present
+#                 assigned_groups_detail = []
+#                 if not assignees_detail and ticket.assigned_group:
+#                     assigned_groups_detail = [{
+#                         "id": ticket.assigned_group.id,
+#                         "name": ticket.assigned_group.name,
+#                         "members": [],  # Empty if not populated
+#                         "members_count": 0
+#                     }]
+#                 elif assigned_group_ids:
+#                     # Optionally populate full group details with members
+#                     for group_id in assigned_group_ids:
+#                         try:
+#                             group = UsersGroup.objects.get(id=group_id)
+#                             group_members = group.get_users()
+#                             assigned_groups_detail.append({
+#                                 "id": group.id,
+#                                 "name": group.name,
+#                                 "members": [  # List of member dicts
+#                                     {
+#                                         "id": m.id,
+#                                         "firstname": getattr(m, 'first_name', None) or getattr(m, 'name', None) or getattr(m, 'username', "Unknown"),
+#                                         "lastname": getattr(m, 'realname', "") or "",
+#                                         "email": m.email,
+#                                         "name": f"{getattr(m, 'first_name', '')} {getattr(m, 'realname', '')}".strip() or getattr(m, 'username', "Unknown") or getattr(m, 'name', "Unknown")
+#                                     } for m in group_members
+#                                 ],
+#                                 "members_count": len(group_members)
+#                             })
+#                         except UsersGroup.DoesNotExist:
+#                             pass
+                
+#                 tickets_data.append({
+#                     "id": ticket.id,
+#                     "ticket_no": ticket.ticket_no,
+#                     "title": ticket.title,
+#                     "description": ticket.description[:100] + "..." if len(ticket.description) > 100 else ticket.description,
+#                     "status": ticket.status.field_name if ticket.status else None,
+#                     "status_detail": {
+#                         "id": ticket.status.id if ticket.status else None,
+#                         "field_name": ticket.status.field_name if ticket.status else None,
+#                         "field_values": ticket.status.field_values if ticket.status else None
+#                     } if ticket.status else None,
+#                     "priority": ticket.priority.field_name if ticket.priority else None,
+#                     "priority_detail": {
+#                         "id": ticket.priority.id if ticket.priority else None,
+#                         "field_name": ticket.priority.field_name if ticket.priority else None,
+#                         "field_values": ticket.priority.field_values if ticket.priority else None
+#                     } if ticket.priority else None,
+#                     "category": ticket.category.category_name if ticket.category else None,
+#                     "category_detail": {
+#                         "id": ticket.category.id if ticket.category else None,
+#                         "category_name": ticket.category.category_name if ticket.category else None,
+#                     } if ticket.category else None,
+#                     "subcategory": ticket.subcategory.subcategory_name if ticket.subcategory else None,
+#                     "subcategory_detail": {
+#                         "id": ticket.subcategory.id if ticket.subcategory else None,
+#                         "subcategory_name": ticket.subcategory.subcategory_name if ticket.subcategory else None
+#                     } if ticket.subcategory else None,
+#                     "department": ticket.department.field_name if ticket.department else None,
+#                     "department_detail": {
+#                         "id": ticket.department.id if ticket.department else None,
+#                         "field_name": ticket.department.field_name if ticket.department else None
+#                     } if ticket.department else None,
+#                     "location": ticket.location.field_name if ticket.location else None,
+#                     "location_detail": {
+#                         "id": ticket.location.id if ticket.location else None,
+#                         "field_name": ticket.location.field_name if ticket.location else None
+#                     } if ticket.location else None,
+#                     "requested_by": ticket.requested.email if ticket.requested else None,
+#                     "requested_detail": {
+#                         "id": ticket.requested.id if ticket.requested else None,
+#                         "name": (
+#                             getattr(ticket.requested, 'name', None) or 
+#                             getattr(ticket.requested, 'first_name', None) or 
+#                             ticket.requested.email
+#                         ) if ticket.requested else None,
+#                         "email": ticket.requested.email if ticket.requested else None
+#                     } if ticket.requested else None,
+#                     "assignees_detail": assignees_detail,  # List of assignee objects (direct + group members)
+#                     "assignee": ticket.assignee,  # Legacy single assignee
+#                     "assigned_groups_detail": assigned_groups_detail,  # Full group details if needed
+#                     "assigned_group": {
+#                         "id": ticket.assigned_group.id if ticket.assigned_group else None,
+#                         "name": ticket.assigned_group.name if ticket.assigned_group else None
+#                     } if ticket.assigned_group else None,
+#                     "created_date": ticket.created_date,
+#                     "updated_date": getattr(ticket, 'updated_date', ticket.created_date),
+#                 })
+            
+#             return {
+#                 "count": len(tickets_data),  # Use len of list to ensure accurate count
+#                 "tickets": tickets_data
+#             }
+
+#         # Get NEW requested tickets (user requested) - tickets requested by user with status "New"
+#         new_tickets = get_tickets_by_status(user_requested_qs, 'New')
+        
+#         # Get SOLVED requested tickets (user requested)
+#         solved_tickets = get_tickets_by_status(user_requested_qs, 'Solved')
+        
+#         # Get CLOSED requested tickets (user requested)
+#         closed_tickets = get_tickets_by_status(user_requested_qs, 'Closed')
+        
+#         # Total user requested tickets
+#         total_user_tickets = user_requested_qs.distinct().count()
+
+#         # Prepare response - use requested keys for compatibility
+#         data = {
+#             "success": True,
+#             "user_email": user_email,
+#             "user_stats": {
+#                 "total_tickets": total_user_tickets,
+#                 "new_assigned": new_tickets["count"],  # Rename to match component, but it's requested
+#                 "new_assigned_tickets": new_tickets["tickets"],
+#                 "solved": solved_tickets["count"],
+#                 "solved_tickets": solved_tickets["tickets"],
+#                 "closed": closed_tickets["count"],
+#                 "closed_tickets": closed_tickets["tickets"],
+#                 "ticket_sources": {
+#                     "requested_by_me": user_requested_qs.distinct().count(),
+#                 }
+#             }
+#         }
+ 
+#         return Response(data, status=status.HTTP_200_OK)    
+
+# class ApproverTicketView(APIView):
+#     def get(self, request):
+#         # Get query parameters
+#         print("data :", request.GET)
+#         start_date_str = request.query_params.get('start_date')
+#         end_date_str = request.query_params.get('end_date')
+#         search = request.query_params.get('search', '').strip()
+#         entity_id = request.query_params.get('entity_id')
+#         assignee_user = request.query_params.get('assignee_user')
+#         assignee_group = request.query_params.get('assignee_group')
+ 
+#         user_email = request.user.email
+        
+#         # Filter tickets where current user is in assigned_users
+#         assigned_tickets_qs = CreateTicket.objects.all()
+        
+#         # IMPORTANT: Filter tickets where current user is assigned
+#         # Check if user ID or email is in assigned_users array
+#         current_user_id = request.user.id
+#         current_user_email = request.user.email
+        
+#         # Create a filter for assigned users containing current user
+#         assigned_tickets_qs = assigned_tickets_qs.filter(
+#             Q(assigned_users__contains=current_user_id) |
+#             Q(assigned_users__contains=current_user_email) |
+#             Q(assigned_users__contains=f'"{current_user_email}"') |
+#             # Also check legacy assignee field
+#             Q(assignee=current_user_id)
+#         ).distinct()
+        
+#         print("assigned_tickets_qs count:", assigned_tickets_qs.count())
+        
+#         # Apply entity filter
+#         if entity_id:
+#             try:
+#                 entity_id = int(entity_id)
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(entity_id=entity_id)
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid entity_id"}, status=400)
+        
+#         # Apply assignee_user filter (if provided)
+#         if assignee_user:
+#             try:
+#                 assignee_user_id = int(assignee_user)
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(
+#                     Q(assigned_users__contains=assignee_user_id) |
+#                     Q(assigned_users__contains=str(assignee_user_id)) |
+#                     Q(assignee=assignee_user_id)
+#                 ).distinct()
+#             except ValueError:
+#                 # Treat as email
+#                 assignee_email = assignee_user
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(
+#                     Q(assigned_users__contains=assignee_email) |
+#                     Q(assigned_users__contains=f'"{assignee_email}"')
+#                 ).distinct()
+        
+#         # Apply assignee_group filter
+#         if assignee_group:
+#             try:
+#                 assignee_group_id = int(assignee_group)
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(
+#                     Q(assigned_groups__contains=assignee_group_id) |
+#                     Q(assigned_groups__contains=str(assignee_group_id)) |
+#                     Q(assigned_group=assignee_group_id)
+#                 ).distinct()
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid assignee_group ID"}, status=400)
+ 
+#         # Apply date filter
+#         start_date = end_date = None
+#         if start_date_str and end_date_str:
+#             try:
+#                 start_date = timezone.make_aware(
+#                     timezone.datetime.strptime(start_date_str, '%Y-%m-%d')
+#                 )
+#                 end_date = timezone.make_aware(
+#                     timezone.datetime.strptime(end_date_str, '%Y-%m-%d')
+#                 ) + timedelta(days=1) - timedelta(seconds=1)
+ 
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(
+#                     created_date__gte=start_date, created_date__lte=end_date
+#                 )
+#             except ValueError:
+#                 return Response({"error": "Invalid date format. Use YYYY-MM-DD."},
+#                                 status=status.HTTP_400_BAD_REQUEST)
+ 
+#         # Apply search filter
+#         if search:
+#             search_filter = Q(title__icontains=search) | Q(description__icontains=search)
+#             assigned_tickets_qs = assigned_tickets_qs.filter(search_filter)
+
+#         # Helper functions (keep the same as before)
+#         def get_user_details(user_identifier):
+#             """Get user details from ID or email"""
+#             try:
+#                 user_obj = None
+                
+#                 if isinstance(user_identifier, int) or (isinstance(user_identifier, str) and user_identifier.isdigit()):
+#                     user_id = int(user_identifier)
+#                     user_obj = User.objects.get(id=user_id)
+#                 else:
+#                     email = str(user_identifier).strip().strip('"\'')
+#                     user_obj = User.objects.get(email=email)
+                
+#                 return {
+#                     "id": user_obj.id,
+#                     "name": getattr(user_obj, 'first_name', None) or getattr(user_obj, 'name', None) or user_obj.email.split('@')[0],
+#                     "email": user_obj.email,
+#                     "full_name": f"{user_obj.first_name or ''} {user_obj.realname or ''}".strip() or user_obj.email.split('@')[0]
+#                 }
+#             except User.DoesNotExist:
+#                 identifier_str = str(user_identifier)
+#                 return {
+#                     "id": None,
+#                     "name": identifier_str if '@' in identifier_str else f"User {identifier_str}",
+#                     "email": identifier_str if '@' in identifier_str else f"user{identifier_str}@unknown.com",
+#                     "full_name": identifier_str if '@' in identifier_str else f"User {identifier_str}",
+#                     "is_unknown": True
+#                 }
+#             except Exception as e:
+#                 print(f"Error getting user details for {user_identifier}: {e}")
+#                 return {
+#                     "id": None,
+#                     "name": str(user_identifier),
+#                     "email": str(user_identifier) if '@' in str(user_identifier) else f"{user_identifier}@unknown.com",
+#                     "full_name": str(user_identifier),
+#                     "is_unknown": True
+#                 }
+
+#         def get_group_details(group_id):
+#             try:
+#                 if isinstance(group_id, str) and group_id.isdigit():
+#                     group_id = int(group_id)
+                    
+#                 group = UsersGroup.objects.get(id=group_id)
+#                 return {
+#                     "id": group.id,
+#                     "name": group.name,
+#                     "description": group.description if hasattr(group, 'description') else ""
+#                 }
+#             except UsersGroup.DoesNotExist:
+#                 return {
+#                     "id": group_id,
+#                     "name": f"Group {group_id}",
+#                     "description": "Group not found",
+#                     "is_unknown": True
+#                 }
+
+#         def parse_assigned_users(value):
+#             if not value:
+#                 return []
+#             try:
+#                 if isinstance(value, str):
+#                     cleaned_value = value.strip()
+#                     if not cleaned_value or cleaned_value == '[]':
+#                         return []
+#                     parsed = json.loads(cleaned_value)
+#                 else:
+#                     parsed = value
+                
+#                 if not isinstance(parsed, list):
+#                     return []
+                
+#                 result = []
+#                 for item in parsed:
+#                     if item is not None:
+#                         user_detail = get_user_details(item)
+#                         result.append(user_detail)
+#                 return result
+#             except json.JSONDecodeError as e:
+#                 print(f"JSON decode error for assigned_users: {value}, error: {e}")
+#                 result = []
+#                 if isinstance(value, str):
+#                     import re
+#                     emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', value)
+#                     for email in emails:
+#                         user_detail = get_user_details(email)
+#                         result.append(user_detail)
+                    
+#                     ids = re.findall(r'\b\d+\b', value)
+#                     for id_str in ids:
+#                         if id_str not in emails:
+#                             user_detail = get_user_details(int(id_str))
+#                             result.append(user_detail)
+#                 return result
+#             except Exception as e:
+#                 print(f"Error parsing assigned_users: {value}, error: {e}")
+#                 return []
+
+#         def parse_assigned_groups(value):
+#             if not value:
+#                 return []
+#             try:
+#                 if isinstance(value, str):
+#                     cleaned_value = value.strip()
+#                     if not cleaned_value or cleaned_value == '[]':
+#                         return []
+#                     parsed = json.loads(cleaned_value)
+#                 else:
+#                     parsed = value
+                
+#                 if not isinstance(parsed, list):
+#                     return []
+                
+#                 result = []
+#                 for item in parsed:
+#                     if item is not None:
+#                         group_detail = get_group_details(item)
+#                         result.append(group_detail)
+#                 return result
+#             except Exception as e:
+#                 print(f"Error parsing assigned_groups: {value}, error: {e}")
+#                 return []
+
+#         # Helper function to get tickets by status (same as before)
+#         def get_tickets_by_status(queryset, status_name):
+#             tickets = queryset.filter(status__field_name__iexact=status_name).distinct().order_by("-ticket_no")
+            
+#             tickets_data = []
+#             seen_ids = set()
+#             for ticket in tickets:
+#                 if ticket.id in seen_ids:
+#                     continue
+#                 seen_ids.add(ticket.id)
+                
+#                 # Parse assigned data
+#                 assigned_users = parse_assigned_users(ticket.assigned_users)
+#                 assigned_groups = parse_assigned_groups(ticket.assigned_groups)
+                
+#                 # Check if current user is in assigned_users
+#                 current_user_in_assigned = any(
+#                     user.get('id') == current_user_id or user.get('email') == current_user_email 
+#                     for user in assigned_users
+#                 )
+                
+#                 # If current user is not in assigned_users but we got this ticket through assignee filter,
+#                 # add current user to the assignees list for display
+#                 if not current_user_in_assigned and ticket.assignee == current_user_id:
+#                     current_user_detail = get_user_details(current_user_id)
+#                     if current_user_detail:
+#                         assigned_users.append(current_user_detail)
+                
+#                 # Get requested user details
+#                 requested_user_detail = None
+#                 if ticket.requested:
+#                     requested_user_detail = {
+#                         "id": ticket.requested.id,
+#                         "name": (
+#                             getattr(ticket.requested, 'name', None) or 
+#                             getattr(ticket.requested, 'first_name', None) or 
+#                             ticket.requested.email
+#                         ),
+#                         "email": ticket.requested.email
+#                     }
+                
+#                 tickets_data.append({
+#                     "id": ticket.id,
+#                     "ticket_no": ticket.ticket_no,
+#                     "title": ticket.title,
+#                     "description": ticket.description[:100] + "..." if len(ticket.description) > 100 else ticket.description,
+#                     "status": ticket.status.field_name if ticket.status else None,
+#                     "status_detail": {
+#                         "id": ticket.status.id if ticket.status else None,
+#                         "field_name": ticket.status.field_name if ticket.status else None,
+#                         "field_values": ticket.status.field_values if ticket.status else None
+#                     } if ticket.status else None,
+#                     "priority": ticket.priority.field_name if ticket.priority else None,
+#                     "priority_detail": {
+#                         "id": ticket.priority.id if ticket.priority else None,
+#                         "field_name": ticket.priority.field_name if ticket.priority else None,
+#                         "field_values": ticket.priority.field_values if ticket.priority else None
+#                     } if ticket.priority else None,
+#                     "category": ticket.category.category_name if ticket.category else None,
+#                     "category_detail": {
+#                         "id": ticket.category.id if ticket.category else None,
+#                         "category_name": ticket.category.category_name if ticket.category else None,
+#                     } if ticket.category else None,
+#                     "subcategory": ticket.subcategory.subcategory_name if ticket.subcategory else None,
+#                     "subcategory_detail": {
+#                         "id": ticket.subcategory.id if ticket.subcategory else None,
+#                         "subcategory_name": ticket.subcategory.subcategory_name if ticket.subcategory else None
+#                     } if ticket.subcategory else None,
+#                     "department": ticket.department.field_name if ticket.department else None,
+#                     "department_detail": {
+#                         "id": ticket.department.id if ticket.department else None,
+#                         "field_name": ticket.department.field_name if ticket.department else None
+#                     } if ticket.department else None,
+#                     "location": ticket.location.field_name if ticket.location else None,
+#                     "location_detail": {
+#                         "id": ticket.location.id if ticket.location else None,
+#                         "field_name": ticket.location.field_name if ticket.location else None
+#                     } if ticket.location else None,
+#                     "requested_by": ticket.requested.email if ticket.requested else None,
+#                     "requested_detail": requested_user_detail,
+#                     "assignees": assigned_users,  # Detailed user info
+#                     "assigned_users": assigned_users,  # Alias for assignees
+#                     "assigned_users_count": len(assigned_users),
+#                     "assigned_groups": assigned_groups,
+#                     "assigned_groups_count": len(assigned_groups),
+#                     "created_date": ticket.created_date,
+#                     "updated_date": getattr(ticket, 'updated_date', ticket.created_date),
+#                     "has_assignments": len(assigned_users) > 0 or len(assigned_groups) > 0,
+#                 })
+            
+#             return {
+#                 "count": len(tickets_data),
+#                 "tickets": tickets_data
+#             }
+
+#         # Get NEW tickets assigned to current user
+#         new_tickets = get_tickets_by_status(assigned_tickets_qs, 'New')
+        
+#         # Get SOLVED tickets assigned to current user
+#         solved_tickets = get_tickets_by_status(assigned_tickets_qs, 'Solved')
+        
+#         # Get CLOSED tickets assigned to current user
+#         closed_tickets = get_tickets_by_status(assigned_tickets_qs, 'Closed')
+        
+#         # Total tickets assigned to current user
+#         total_assigned_tickets = assigned_tickets_qs.distinct().count()
+
+#         # Calculate statistics
+#         all_tickets = new_tickets["tickets"] + solved_tickets["tickets"] + closed_tickets["tickets"]
+#         total_assigned_users = sum(len(ticket.get("assigned_users", [])) for ticket in all_tickets)
+#         total_assigned_groups = sum(len(ticket.get("assigned_groups", [])) for ticket in all_tickets)
+
+#         # Prepare response
+#         data = {
+#             "success": True,
+#             "user_email": user_email,
+#             "user_stats": {
+#                 "total_tickets": total_assigned_tickets,
+#                 "new_assigned": new_tickets["count"],
+#                 "new_assigned_tickets": new_tickets["tickets"],
+#                 "solved": solved_tickets["count"],
+#                 "solved_tickets": solved_tickets["tickets"],
+#                 "closed": closed_tickets["count"],
+#                 "closed_tickets": closed_tickets["tickets"],
+#                 "ticket_sources": {
+#                     "assigned_to_me": total_assigned_tickets,
+#                 },
+#                 "assignment_stats": {
+#                     "total_assigned_users": total_assigned_users,
+#                     "total_assigned_groups": total_assigned_groups,
+#                     "tickets_with_users": sum(1 for ticket in all_tickets if ticket.get("assigned_users_count", 0) > 0),
+#                     "tickets_with_groups": sum(1 for ticket in all_tickets if ticket.get("assigned_groups_count", 0) > 0),
+#                     "tickets_with_both": sum(1 for ticket in all_tickets if ticket.get("assigned_users_count", 0) > 0 and ticket.get("assigned_groups_count", 0) > 0),
+#                 }
+#             },
+#             "filters": {
+#                 "assignee_user": assignee_user,
+#                 "assignee_group": assignee_group,
+#                 "entity_id": entity_id,
+#                 "search": search if search else None,
+#                 "date_range": {
+#                     "start_date": start_date_str,
+#                     "end_date": end_date_str
+#                 } if start_date_str and end_date_str else None
+#             }
+#         }
+ 
+#         return Response(data, status=status.HTTP_200_OK)
+
 class TicketView(APIView):
     def get(self, request):
-        """Get user ticket stats with New, Solved, and Closed statuses"""
+        """Get user ticket stats with New, Solved, Closed, and Cancelled statuses"""
         # Get query parameters
         start_date_str = request.query_params.get('start_date')
         end_date_str = request.query_params.get('end_date')
@@ -2893,7 +3498,7 @@ class TicketView(APIView):
                     try:
                         # Filter users by IDs
                         direct_users = User.objects.filter(id__in=assigned_user_ids).values(
-                            'id', 'first_name', 'last_name', 'email', 'username'
+                            'id', 'firstname', 'lastname', 'email', 'username'
                         )
                         for user_data in direct_users:
                             user_id = user_data['id']
@@ -2901,10 +3506,10 @@ class TicketView(APIView):
                                 seen_assignee_ids.add(user_id)
                                 assignees_detail.append({
                                     "id": user_id,
-                                    "firstname": user_data['first_name'] or user_data['username'] or "Unknown",
-                                    "lastname": user_data['last_name'] or "",
+                                    "firstname": user_data['firstname'] or user_data['username'] or "Unknown",
+                                    "lastname": user_data['lastname'] or "",
                                     "email": user_data['email'],
-                                    "name": f"{user_data['first_name']} {user_data['last_name']}".strip() or user_data['username'] or "Unknown"
+                                    "name": f"{user_data['firstname']} {user_data['lastname']}".strip() or user_data['username'] or "Unknown"
                                 })
                     except Exception as e:
                         # If IDs are invalid or emails, handle accordingly
@@ -2922,10 +3527,10 @@ class TicketView(APIView):
                                     seen_assignee_ids.add(member_id)
                                     assignees_detail.append({
                                         "id": member_id,
-                                        "firstname": getattr(member, 'first_name', None) or getattr(member, 'name', None) or getattr(member, 'username', "Unknown"),
-                                        "lastname": getattr(member, 'last_name', "") or "",
+                                        "firstname": getattr(member, 'firstname', None) or getattr(member, 'name', None) or getattr(member, 'username', "Unknown"),
+                                        "lastname": getattr(member, 'lastname', "") or "",
                                         "email": member.email,
-                                        "name": f"{getattr(member, 'first_name', '')} {getattr(member, 'last_name', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
+                                        "name": f"{getattr(member, 'firstname', '')} {getattr(member, 'lastname', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
                                     })
                         except UsersGroup.DoesNotExist:
                             pass
@@ -2953,10 +3558,10 @@ class TicketView(APIView):
                                 "members": [  # List of member dicts
                                     {
                                         "id": m.id,
-                                        "firstname": getattr(m, 'first_name', None) or getattr(m, 'name', None) or getattr(m, 'username', "Unknown"),
-                                        "lastname": getattr(m, 'last_name', "") or "",
+                                        "firstname": getattr(m, 'firstname', None) or getattr(m, 'name', None) or getattr(m, 'username', "Unknown"),
+                                        "lastname": getattr(m, 'lastname', "") or "",
                                         "email": m.email,
-                                        "name": f"{getattr(m, 'first_name', '')} {getattr(m, 'last_name', '')}".strip() or getattr(m, 'username', "Unknown") or getattr(m, 'name', "Unknown")
+                                        "name": f"{getattr(m, 'firstname', '')} {getattr(m, 'lastname', '')}".strip() or getattr(m, 'username', "Unknown") or getattr(m, 'name', "Unknown")
                                     } for m in group_members
                                 ],
                                 "members_count": len(group_members)
@@ -3006,7 +3611,7 @@ class TicketView(APIView):
                         "id": ticket.requested.id if ticket.requested else None,
                         "name": (
                             getattr(ticket.requested, 'name', None) or 
-                            getattr(ticket.requested, 'first_name', None) or 
+                            getattr(ticket.requested, 'firstname', None) or 
                             ticket.requested.email
                         ) if ticket.requested else None,
                         "email": ticket.requested.email if ticket.requested else None
@@ -3036,6 +3641,9 @@ class TicketView(APIView):
         # Get CLOSED requested tickets (user requested)
         closed_tickets = get_tickets_by_status(user_requested_qs, 'Closed')
         
+        # Get CANCELLED requested tickets (user requested)
+        cancelled_tickets = get_tickets_by_status(user_requested_qs, 'Cancelled')
+        
         # Total user requested tickets
         total_user_tickets = user_requested_qs.distinct().count()
 
@@ -3051,6 +3659,8 @@ class TicketView(APIView):
                 "solved_tickets": solved_tickets["tickets"],
                 "closed": closed_tickets["count"],
                 "closed_tickets": closed_tickets["tickets"],
+                "cancelled": cancelled_tickets["count"],
+                "cancelled_tickets": cancelled_tickets["tickets"],
                 "ticket_sources": {
                     "requested_by_me": user_requested_qs.distinct().count(),
                 }
@@ -3150,44 +3760,132 @@ class ApproverTicketView(APIView):
             search_filter = Q(title__icontains=search) | Q(description__icontains=search)
             assigned_tickets_qs = assigned_tickets_qs.filter(search_filter)
 
-        # Helper functions (keep the same as before)
+        # def get_user_details(user_identifier):
+        #     try:
+        #         user_obj = None
+
+        #         # Case 1: ID
+        #         if isinstance(user_identifier, int) or (
+        #             isinstance(user_identifier, str) and user_identifier.isdigit()
+        #         ):
+        #             user_obj = User.objects.filter(id=int(user_identifier)).first()
+
+        #         # Case 2: Email
+        #         else:
+        #             email = str(user_identifier).strip().strip('"\'')
+        #             user_obj = User.objects.filter(email__iexact=email).first()
+
+        #         if not user_obj:
+        #             raise User.DoesNotExist
+
+        #         return {
+        #             "id": user_obj.id,
+        #             "name": user_obj.email.split("@")[0],
+        #             "email": user_obj.email,
+        #             "full_name": user_obj.email,
+        #             "is_unknown": False
+        #         }
+
+        #     except User.DoesNotExist:
+        #         identifier = str(user_identifier)
+        #         return {
+        #             "id": None,
+        #             "name": identifier.split("@")[0] if "@" in identifier else identifier,
+        #             "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
+        #             "full_name": identifier,
+        #             "is_unknown": True
+        #         }
+        # def get_user_details(user_identifier):
+        #     try:
+        #         user_obj = None
+        #         if isinstance(user_identifier, int) or (isinstance(user_identifier, str) and user_identifier.isdigit()):
+        #             user_obj = User.objects.filter(id=int(user_identifier)).first()
+        #         else:
+        #             email = str(user_identifier).strip().strip('"\'')
+        #             user_obj = User.objects.filter(email__iexact=email).first()
+
+        #         if not user_obj:
+        #             raise User.DoesNotExist
+
+        #         firstname = getattr(user_obj, 'firstname', None) or getattr(user_obj, 'username', None) or ""
+        #         lastname = getattr(user_obj, 'lastname', "")  # Safe fallback
+        #         full_name = f"{firstname} {lastname}".strip() or user_obj.email.split("@")[0]
+
+        #         return {
+        #             "id": user_obj.id,
+        #             "name": firstname or user_obj.email.split("@")[0],
+        #             "email": user_obj.email,
+        #             "full_name": full_name,
+        #             "is_unknown": False
+        #         }
+
+        #     except User.DoesNotExist:
+        #         identifier = str(user_identifier)
+        #         return {
+        #             "id": None,
+        #             "name": identifier.split("@")[0] if "@" in identifier else identifier,
+        #             "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
+        #             "full_name": identifier,
+        #             "is_unknown": True
+        #         }
+        #     except Exception as e:
+        #         print(f"Error in get_user_details for {user_identifier}: {e}")
+        #         return {
+        #             "id": None,
+        #             "name": str(user_identifier),
+        #             "email": str(user_identifier) if "@" in str(user_identifier) else f"{user_identifier}@unknown.com",
+        #             "full_name": str(user_identifier),
+        #             "is_unknown": True
+        # }
         def get_user_details(user_identifier):
-            """Get user details from ID or email"""
+            """Get user details from ID or email – safe for models without lastname"""
             try:
                 user_obj = None
-                
+
                 if isinstance(user_identifier, int) or (isinstance(user_identifier, str) and user_identifier.isdigit()):
-                    user_id = int(user_identifier)
-                    user_obj = User.objects.get(id=user_id)
+                    user_obj = User.objects.filter(id=int(user_identifier)).first()
                 else:
                     email = str(user_identifier).strip().strip('"\'')
-                    user_obj = User.objects.get(email=email)
-                
+                    user_obj = User.objects.filter(email__iexact=email).first()
+
+                if not user_obj:
+                    raise User.DoesNotExist
+
+                # Safely get firstname (or fallback to username/email)
+                firstname = getattr(user_obj, 'firstname', None) or getattr(user_obj, 'username', None) or ""
+                # lastname may not exist — use safe getattr with empty fallback
+                lastname = getattr(user_obj, 'lastname', "")  
+                full_name = f"{firstname} {lastname}".strip()
+                if not full_name:
+                    full_name = user_obj.email.split("@")[0]  # fallback to email prefix
+
                 return {
                     "id": user_obj.id,
-                    "name": getattr(user_obj, 'first_name', None) or getattr(user_obj, 'name', None) or user_obj.email.split('@')[0],
+                    "name": firstname or user_obj.email.split("@")[0],
                     "email": user_obj.email,
-                    "full_name": f"{user_obj.first_name or ''} {user_obj.last_name or ''}".strip() or user_obj.email.split('@')[0]
+                    "full_name": full_name,
+                    "is_unknown": False
                 }
+
             except User.DoesNotExist:
-                identifier_str = str(user_identifier)
+                identifier = str(user_identifier)
                 return {
                     "id": None,
-                    "name": identifier_str if '@' in identifier_str else f"User {identifier_str}",
-                    "email": identifier_str if '@' in identifier_str else f"user{identifier_str}@unknown.com",
-                    "full_name": identifier_str if '@' in identifier_str else f"User {identifier_str}",
+                    "name": identifier.split("@")[0] if "@" in identifier else identifier,
+                    "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
+                    "full_name": identifier,
                     "is_unknown": True
                 }
             except Exception as e:
-                print(f"Error getting user details for {user_identifier}: {e}")
+                print(f"Unexpected error in get_user_details for {user_identifier}: {e}")
+                identifier = str(user_identifier)
                 return {
                     "id": None,
-                    "name": str(user_identifier),
-                    "email": str(user_identifier) if '@' in str(user_identifier) else f"{user_identifier}@unknown.com",
-                    "full_name": str(user_identifier),
+                    "name": identifier.split("@")[0] if "@" in identifier else identifier,
+                    "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
+                    "full_name": identifier,
                     "is_unknown": True
                 }
-
         def get_group_details(group_id):
             try:
                 if isinstance(group_id, str) and group_id.isdigit():
@@ -3204,7 +3902,6 @@ class ApproverTicketView(APIView):
                     "id": group_id,
                     "name": f"Group {group_id}",
                     "description": "Group not found",
-                    "is_unknown": True
                 }
 
         def parse_assigned_users(value):
@@ -3308,7 +4005,7 @@ class ApproverTicketView(APIView):
                         "id": ticket.requested.id,
                         "name": (
                             getattr(ticket.requested, 'name', None) or 
-                            getattr(ticket.requested, 'first_name', None) or 
+                            getattr(ticket.requested, 'firstname', None) or 
                             ticket.requested.email
                         ),
                         "email": ticket.requested.email
@@ -3377,11 +4074,14 @@ class ApproverTicketView(APIView):
         # Get CLOSED tickets assigned to current user
         closed_tickets = get_tickets_by_status(assigned_tickets_qs, 'Closed')
         
+        # Get CANCELLED tickets assigned to current user
+        cancelled_tickets = get_tickets_by_status(assigned_tickets_qs, 'Cancelled')
+        
         # Total tickets assigned to current user
         total_assigned_tickets = assigned_tickets_qs.distinct().count()
 
         # Calculate statistics
-        all_tickets = new_tickets["tickets"] + solved_tickets["tickets"] + closed_tickets["tickets"]
+        all_tickets = new_tickets["tickets"] + solved_tickets["tickets"] + closed_tickets["tickets"] + cancelled_tickets["tickets"]
         total_assigned_users = sum(len(ticket.get("assigned_users", [])) for ticket in all_tickets)
         total_assigned_groups = sum(len(ticket.get("assigned_groups", [])) for ticket in all_tickets)
 
@@ -3397,6 +4097,8 @@ class ApproverTicketView(APIView):
                 "solved_tickets": solved_tickets["tickets"],
                 "closed": closed_tickets["count"],
                 "closed_tickets": closed_tickets["tickets"],
+                "cancelled": cancelled_tickets["count"],
+                "cancelled_tickets": cancelled_tickets["tickets"],
                 "ticket_sources": {
                     "assigned_to_me": total_assigned_tickets,
                 },
@@ -3421,7 +4123,1095 @@ class ApproverTicketView(APIView):
         }
  
         return Response(data, status=status.HTTP_200_OK)
-    
+ 
+
+class AdminTicketView(APIView):
+    def get(self, request):
+        # Get query parameters
+        print("data :", request.GET)
+        start_date_str = request.query_params.get('start_date')
+        end_date_str = request.query_params.get('end_date')
+        search = request.query_params.get('search', '').strip()
+        entity_id = request.query_params.get('entity_id')
+        assignee_user = request.query_params.get('assignee_user')
+        assignee_group = request.query_params.get('assignee_group')
+        user_email = request.user.email
+       
+        # Base queryset: all tickets for admin
+        all_tickets_qs = CreateTicket.objects.all()
+       
+        print("all_tickets_qs count:", all_tickets_qs.count())
+       
+        # Apply entity filter
+        if entity_id:
+            try:
+                entity_id = int(entity_id)
+                all_tickets_qs = all_tickets_qs.filter(entity_id=entity_id)
+            except (ValueError, TypeError):
+                return Response({"error": "Invalid entity_id"}, status=400)
+       
+        # Apply assignee_user filter (optional for admin to filter by specific user)
+        if assignee_user:
+            try:
+                assignee_user_id = int(assignee_user)
+                all_tickets_qs = all_tickets_qs.filter(
+                    Q(assigned_users__contains=assignee_user_id) |
+                    Q(assigned_users__contains=str(assignee_user_id)) |
+                    Q(assignee=assignee_user_id)
+                ).distinct()
+            except ValueError:
+                # Treat as email
+                assignee_email = assignee_user
+                all_tickets_qs = all_tickets_qs.filter(
+                    Q(assigned_users__contains=assignee_email) |
+                    Q(assigned_users__contains=f'"{assignee_email}"')
+                ).distinct()
+       
+        # Apply assignee_group filter (optional)
+        if assignee_group:
+            try:
+                assignee_group_id = int(assignee_group)
+                all_tickets_qs = all_tickets_qs.filter(
+                    Q(assigned_groups__contains=assignee_group_id) |
+                    Q(assigned_groups__contains=str(assignee_group_id)) |
+                    Q(assigned_group=assignee_group_id)
+                ).distinct()
+            except (ValueError, TypeError):
+                return Response({"error": "Invalid assignee_group ID"}, status=400)
+       
+        # Apply date filter
+        start_date = end_date = None
+        if start_date_str and end_date_str:
+            try:
+                start_date = timezone.make_aware(
+                    timezone.datetime.strptime(start_date_str, '%Y-%m-%d')
+                )
+                end_date = timezone.make_aware(
+                    timezone.datetime.strptime(end_date_str, '%Y-%m-%d')
+                ) + timedelta(days=1) - timedelta(seconds=1)
+                all_tickets_qs = all_tickets_qs.filter(
+                    created_date__gte=start_date, created_date__lte=end_date
+                )
+            except ValueError:
+                return Response({"error": "Invalid date format. Use YYYY-MM-DD."},
+                                status=status.HTTP_400_BAD_REQUEST)
+        # Apply search filter
+        if search:
+            search_filter = Q(title__icontains=search) | Q(description__icontains=search)
+            all_tickets_qs = all_tickets_qs.filter(search_filter)
+       
+        # Helper functions for approver/admin style
+        # def get_user_details(user_identifier):
+        #     """Get user details from ID or email"""
+        #     try:
+        #         user_obj = None
+               
+        #         if isinstance(user_identifier, int) or (isinstance(user_identifier, str) and user_identifier.isdigit()):
+        #             user_id = int(user_identifier)
+        #             user_obj = User.objects.get(id=user_id)
+        #         else:
+        #             email = str(user_identifier).strip().strip('"\'')
+        #             user_obj = User.objects.get(email=email)
+               
+        #         return {
+        #             "id": user_obj.id,
+        #             "name": getattr(user_obj, 'firstname', None) or getattr(user_obj, 'name', None) or user_obj.email.split('@')[0],
+        #             "email": user_obj.email,
+        #             "full_name": f"{user_obj.firstname or ''} {user_obj.lastname or ''}".strip() or user_obj.email.split('@')[0]
+        #         }
+        #     except User.DoesNotExist:
+        #         identifier_str = str(user_identifier)
+        #         return {
+        #             "id": None,
+        #             "name": identifier_str if '@' in identifier_str else f"User {identifier_str}",
+        #             "email": identifier_str if '@' in identifier_str else f"user{identifier_str}@unknown.com",
+        #             "full_name": identifier_str if '@' in identifier_str else f"User {identifier_str}",
+        #         }
+        #     except Exception as e:
+        #         print(f"Error getting user details for {user_identifier}: {e}")
+        #         return {
+        #             "id": None,
+        #             "name": str(user_identifier),
+        #             "email": str(user_identifier) if '@' in str(user_identifier) else f"{user_identifier}@unknown.com",
+        #             "full_name": str(user_identifier),
+        #         }
+        def get_user_details(user_identifier):
+            """Get user details from ID or email – safe for models without lastname"""
+            try:
+                user_obj = None
+
+                if isinstance(user_identifier, int) or (isinstance(user_identifier, str) and user_identifier.isdigit()):
+                    user_obj = User.objects.filter(id=int(user_identifier)).first()
+                else:
+                    email = str(user_identifier).strip().strip('"\'')
+                    user_obj = User.objects.filter(email__iexact=email).first()
+
+                if not user_obj:
+                    raise User.DoesNotExist
+
+                # Safely get firstname (or fallback to username/email)
+                firstname = getattr(user_obj, 'firstname', None) or getattr(user_obj, 'username', None) or ""
+                # lastname may not exist — use safe getattr with empty fallback
+                lastname = getattr(user_obj, 'lastname', "")  
+                full_name = f"{firstname} {lastname}".strip()
+                if not full_name:
+                    full_name = user_obj.email.split("@")[0]  # fallback to email prefix
+
+                return {
+                    "id": user_obj.id,
+                    "name": firstname or user_obj.email.split("@")[0],
+                    "email": user_obj.email,
+                    "full_name": full_name,
+                    "is_unknown": False
+                }
+
+            except User.DoesNotExist:
+                identifier = str(user_identifier)
+                return {
+                    "id": None,
+                    "name": identifier.split("@")[0] if "@" in identifier else identifier,
+                    "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
+                    "full_name": identifier,
+                }
+            except Exception as e:
+                print(f"Unexpected error in get_user_details for {user_identifier}: {e}")
+                identifier = str(user_identifier)
+                return {
+                    "id": None,
+                    "name": identifier.split("@")[0] if "@" in identifier else identifier,
+                    "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
+                    "full_name": identifier,  
+                }
+       
+        def get_group_details(group_id):
+            try:
+                if isinstance(group_id, str) and group_id.isdigit():
+                    group_id = int(group_id)
+                   
+                group = UsersGroup.objects.get(id=group_id)
+                return {
+                    "id": group.id,
+                    "name": group.name,
+                    "description": group.description if hasattr(group, 'description') else ""
+                }
+            except UsersGroup.DoesNotExist:
+                return {
+                    "id": group_id,
+                    "name": f"Group {group_id}",
+                    "description": "Group not found",
+                }
+       
+        def parse_assigned_users(value):
+            if not value:
+                return []
+            try:
+                if isinstance(value, str):
+                    cleaned_value = value.strip()
+                    if not cleaned_value or cleaned_value == '[]':
+                        return []
+                    parsed = json.loads(cleaned_value)
+                else:
+                    parsed = value
+               
+                if not isinstance(parsed, list):
+                    return []
+               
+                result = []
+                for item in parsed:
+                    if item is not None:
+                        user_detail = get_user_details(item)
+                        result.append(user_detail)
+                return result
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error for assigned_users: {value}, error: {e}")
+                result = []
+                if isinstance(value, str):
+                    emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', value)
+                    for email in emails:
+                        user_detail = get_user_details(email)
+                        result.append(user_detail)
+                   
+                    ids = re.findall(r'\b\d+\b', value)
+                    for id_str in ids:
+                        if id_str not in [e for e in emails if e.isdigit()]:  # Avoid duplicate if email is numeric
+                            user_detail = get_user_details(int(id_str))
+                            result.append(user_detail)
+                return result
+            except Exception as e:
+                print(f"Error parsing assigned_users: {value}, error: {e}")
+                return []
+       
+        def parse_assigned_groups(value):
+            if not value:
+                return []
+            try:
+                if isinstance(value, str):
+                    cleaned_value = value.strip()
+                    if not cleaned_value or cleaned_value == '[]':
+                        return []
+                    parsed = json.loads(cleaned_value)
+                else:
+                    parsed = value
+               
+                if not isinstance(parsed, list):
+                    return []
+               
+                result = []
+                for item in parsed:
+                    if item is not None:
+                        group_detail = get_group_details(item)
+                        result.append(group_detail)
+                return result
+            except Exception as e:
+                print(f"Error parsing assigned_groups: {value}, error: {e}")
+                return []
+       
+        # Helper function to get tickets by status (approver/admin style)
+        def get_tickets_by_status(queryset, status_name):
+            tickets = queryset.filter(status__field_name__iexact=status_name).distinct().order_by("-ticket_no")
+           
+            tickets_data = []
+            seen_ids = set()
+            for ticket in tickets:
+                if ticket.id in seen_ids:
+                    continue
+                seen_ids.add(ticket.id)
+               
+                # Parse assigned data
+                assigned_users = parse_assigned_users(ticket.assigned_users)
+                assigned_groups = parse_assigned_groups(ticket.assigned_groups)
+               
+                # Get requested user details
+                requested_user_detail = None
+                if ticket.requested:
+                    requested_user_detail = {
+                        "id": ticket.requested.id,
+                        "name": (
+                            getattr(ticket.requested, 'name', None) or
+                            getattr(ticket.requested, 'firstname', None) or
+                            ticket.requested.email
+                        ),
+                        "email": ticket.requested.email
+                    }
+               
+                tickets_data.append({
+                    "id": ticket.id,
+                    "ticket_no": ticket.ticket_no,
+                    "title": ticket.title,
+                    "description": ticket.description[:100] + "..." if len(ticket.description) > 100 else ticket.description,
+                    "status": ticket.status.field_name if ticket.status else None,
+                    "status_detail": {
+                        "id": ticket.status.id if ticket.status else None,
+                        "field_name": ticket.status.field_name if ticket.status else None,
+                        "field_values": ticket.status.field_values if ticket.status else None
+                    } if ticket.status else None,
+                    "priority": ticket.priority.field_name if ticket.priority else None,
+                    "priority_detail": {
+                        "id": ticket.priority.id if ticket.priority else None,
+                        "field_name": ticket.priority.field_name if ticket.priority else None,
+                        "field_values": ticket.priority.field_values if ticket.priority else None
+                    } if ticket.priority else None,
+                    "category": ticket.category.category_name if ticket.category else None,
+                    "category_detail": {
+                        "id": ticket.category.id if ticket.category else None,
+                        "category_name": ticket.category.category_name if ticket.category else None,
+                    } if ticket.category else None,
+                    "subcategory": ticket.subcategory.subcategory_name if ticket.subcategory else None,
+                    "subcategory_detail": {
+                        "id": ticket.subcategory.id if ticket.subcategory else None,
+                        "subcategory_name": ticket.subcategory.subcategory_name if ticket.subcategory else None
+                    } if ticket.subcategory else None,
+                    "department": ticket.department.field_name if ticket.department else None,
+                    "department_detail": {
+                        "id": ticket.department.id if ticket.department else None,
+                        "field_name": ticket.department.field_name if ticket.department else None
+                    } if ticket.department else None,
+                    "location": ticket.location.field_name if ticket.location else None,
+                    "location_detail": {
+                        "id": ticket.location.id if ticket.location else None,
+                        "field_name": ticket.location.field_name if ticket.location else None
+                    } if ticket.location else None,
+                    "requested_by": ticket.requested.email if ticket.requested else None,
+                    "requested_detail": requested_user_detail,
+                    "assignees": assigned_users, # Detailed user info (direct)
+                    "assigned_users": assigned_users, # Alias for assignees
+                    "assigned_users_count": len(assigned_users),
+                    "assigned_groups": assigned_groups,
+                    "assigned_groups_count": len(assigned_groups),
+                    "created_date": ticket.created_date,
+                    "updated_date": getattr(ticket, 'updated_date', ticket.created_date),
+                    "has_assignments": len(assigned_users) > 0 or len(assigned_groups) > 0,
+                })
+           
+            return {
+                "count": len(tickets_data),
+                "tickets": tickets_data
+            }
+ 
+        # Helper function to get tickets by status (user style, with assignees_detail)
+        def get_user_tickets_by_status(queryset, status_name):
+            tickets = queryset.filter(status__field_name__iexact=status_name).distinct().order_by("-ticket_no")
+           
+            tickets_data = []
+            seen_ids = set()
+            for ticket in tickets:
+                if ticket.id in seen_ids:
+                    continue
+                seen_ids.add(ticket.id)
+               
+                # assigned_users is already a list from JSONField (assuming list of user IDs or emails)
+                assigned_user_ids = ticket.assigned_users if ticket.assigned_users else []
+               
+                # assigned_groups is already a list from JSONField (list of group IDs)
+                assigned_group_ids = ticket.assigned_groups if ticket.assigned_groups else []
+               
+                # Collect all assignees_detail: list of user objects from direct assignees and group members
+                               # Handle direct assignees (supports both IDs and emails)
+                assignees_detail = []
+                seen_assignee_ids = set()
+
+                if assigned_user_ids:
+                    user_ids = []
+                    user_emails = []
+
+                    # Safely iterate over assigned_user_ids (in case it's not a list)
+                    items = assigned_user_ids if isinstance(assigned_user_ids, list) else []
+                    for item in items:
+                        if isinstance(item, int) or (isinstance(item, str) and item.isdigit()):
+                            try:
+                                user_ids.append(int(item))
+                            except ValueError:
+                                pass
+                        elif isinstance(item, str) and '@' in item:
+                            cleaned = item.strip().strip('"\'')
+                            user_emails.append(cleaned)
+
+                    try:
+                        # Fetch by IDs
+                        if user_ids:
+                            for user in User.objects.filter(id__in=user_ids):
+                                if user.id not in seen_assignee_ids:
+                                    seen_assignee_ids.add(user.id)
+                                    assignees_detail.append({
+                                        "id": user.id,
+                                        "firstname": getattr(user, 'firstname', '') or getattr(user, 'username', '') or "Unknown",
+                                        "lastname": getattr(user, 'lastname', '') or "",
+                                        "email": user.email,
+                                        "name": (
+                                            f"{getattr(user, 'firstname', '')} {getattr(user, 'lastname', '')}".strip()
+                                            or getattr(user, 'username', '') 
+                                            or user.email 
+                                            or "Unknown"
+                                        )
+                                    })
+
+                        # Fetch by emails
+                        if user_emails:
+                            for user in User.objects.filter(email__in=user_emails):
+                                if user.id not in seen_assignee_ids:
+                                    seen_assignee_ids.add(user.id)
+                                    assignees_detail.append({
+                                        "id": user.id,
+                                        "firstname": getattr(user, 'firstname', '') or getattr(user, 'username', '') or "Unknown",
+                                        "lastname": getattr(user, 'lastname', '') or "",
+                                        "email": user.email,
+                                        "name": (
+                                            f"{getattr(user, 'firstname', '')} {getattr(user, 'lastname', '')}".strip()
+                                            or getattr(user, 'username', '') 
+                                            or user.email 
+                                            or "Unknown"
+                                        )
+                                    })
+
+                    except Exception as e:
+                        print(f"Error fetching direct assignees: {e}")
+                # Handle group assignees: add group members if no direct or to supplement
+                if assigned_group_ids:
+                    for group_id in assigned_group_ids:
+                        try:
+                            group = UsersGroup.objects.get(id=group_id)
+                            group_members = group.get_users()
+                            for member in group_members:
+                                member_id = member.id
+                                if member_id not in seen_assignee_ids:
+                                    seen_assignee_ids.add(member_id)
+                                    assignees_detail.append({
+                                        "id": member_id,
+                                        "firstname": getattr(member, 'firstname', None) or getattr(member, 'name', None) or getattr(member, 'username', "Unknown"),
+                                        "lastname": getattr(member, 'lastname', "") or "",
+                                        "email": member.email,
+                                        "name": f"{getattr(member, 'firstname', '')} {getattr(member, 'lastname', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
+                                    })
+                        except UsersGroup.DoesNotExist:
+                            pass
+                        except Exception as e:
+                            print(f"Error fetching group members: {e}")
+               
+                # Fallback: if still no assignees, use assigned_group details if present
+                assigned_groups_detail = []
+                if not assignees_detail and ticket.assigned_group:
+                    assigned_groups_detail = [{
+                        "id": ticket.assigned_group.id,
+                        "name": ticket.assigned_group.name,
+                        "members": [], # Empty if not populated
+                        "members_count": 0
+                    }]
+                elif assigned_group_ids:
+                    # Optionally populate full group details with members
+                    for group_id in assigned_group_ids:
+                        try:
+                            group = UsersGroup.objects.get(id=group_id)
+                            group_members = group.get_users()
+                            assigned_groups_detail.append({
+                                "id": group.id,
+                                "name": group.name,
+                                "members": [ # List of member dicts
+                                    {
+                                        "id": m.id,
+                                        "firstname": getattr(m, 'firstname', None) or getattr(m, 'name', None) or getattr(m, 'username', "Unknown"),
+                                        "lastname": getattr(m, 'lastname', "") or "",
+                                        "email": m.email,
+                                        "name": f"{getattr(m, 'firstname', '')} {getattr(m, 'lastname', '')}".strip() or getattr(m, 'username', "Unknown") or getattr(m, 'name', "Unknown")
+                                    } for m in group_members
+                                ],
+                                "members_count": len(group_members)
+                            })
+                        except UsersGroup.DoesNotExist:
+                            pass
+               
+                # Get requested user details
+                requested_detail = None
+                if ticket.requested:
+                    requested_detail = {
+                        "id": ticket.requested.id,
+                        "name": (
+                            getattr(ticket.requested, 'name', None) or
+                            getattr(ticket.requested, 'firstname', None) or
+                            ticket.requested.email
+                        ),
+                        "email": ticket.requested.email
+                    }
+               
+                tickets_data.append({
+                    "id": ticket.id,
+                    "ticket_no": ticket.ticket_no,
+                    "title": ticket.title,
+                    "description": ticket.description[:100] + "..." if len(ticket.description) > 100 else ticket.description,
+                    "status": ticket.status.field_name if ticket.status else None,
+                    "status_detail": {
+                        "id": ticket.status.id if ticket.status else None,
+                        "field_name": ticket.status.field_name if ticket.status else None,
+                        "field_values": ticket.status.field_values if ticket.status else None
+                    } if ticket.status else None,
+                    "priority": ticket.priority.field_name if ticket.priority else None,
+                    "priority_detail": {
+                        "id": ticket.priority.id if ticket.priority else None,
+                        "field_name": ticket.priority.field_name if ticket.priority else None,
+                        "field_values": ticket.priority.field_values if ticket.priority else None
+                    } if ticket.priority else None,
+                    "category": ticket.category.category_name if ticket.category else None,
+                    "category_detail": {
+                        "id": ticket.category.id if ticket.category else None,
+                        "category_name": ticket.category.category_name if ticket.category else None,
+                    } if ticket.category else None,
+                    "subcategory": ticket.subcategory.subcategory_name if ticket.subcategory else None,
+                    "subcategory_detail": {
+                        "id": ticket.subcategory.id if ticket.subcategory else None,
+                        "subcategory_name": ticket.subcategory.subcategory_name if ticket.subcategory else None
+                    } if ticket.subcategory else None,
+                    "department": ticket.department.field_name if ticket.department else None,
+                    "department_detail": {
+                        "id": ticket.department.id if ticket.department else None,
+                        "field_name": ticket.department.field_name if ticket.department else None
+                    } if ticket.department else None,
+                    "location": ticket.location.field_name if ticket.location else None,
+                    "location_detail": {
+                        "id": ticket.location.id if ticket.location else None,
+                        "field_name": ticket.location.field_name if ticket.location else None
+                    } if ticket.location else None,
+                    "requested_by": ticket.requested.email if ticket.requested else None,
+                    "requested_detail": requested_detail,
+                    "assignees_detail": assignees_detail,  # List of assignee objects (direct + group members)
+                    # "assignee": ticket.assignee, 
+                   "assignee": ticket.assignee if ticket.assignee else None,
+
+
+                    "assigned_groups_detail": assigned_groups_detail,  # Full group details if needed
+                    "assigned_group": {
+                        "id": ticket.assigned_group.id if ticket.assigned_group else None,
+                        "name": ticket.assigned_group.name if ticket.assigned_group else None
+                    } if ticket.assigned_group else None,
+                    "created_date": ticket.created_date,
+                    "updated_date": getattr(ticket, 'updated_date', ticket.created_date),
+                })
+           
+            return {
+                "count": len(tickets_data),
+                "tickets": tickets_data
+            }
+       
+        # Compute for user_stats (all created tickets, user style)
+        user_new_tickets = get_user_tickets_by_status(all_tickets_qs, 'New')
+        user_solved_tickets = get_user_tickets_by_status(all_tickets_qs, 'Solved')
+        user_closed_tickets = get_user_tickets_by_status(all_tickets_qs, 'Closed')
+        user_cancelled_tickets = get_user_tickets_by_status(all_tickets_qs, 'Cancelled')
+        user_clarification_required_tickets = get_user_tickets_by_status(all_tickets_qs, 'Clarification Required')
+        user_clarification_applied_tickets = get_user_tickets_by_status(all_tickets_qs, 'Clarification Applied')
+       
+        total_user_tickets = all_tickets_qs.distinct().count()
+       
+        user_stats = {
+            "total_tickets": total_user_tickets,
+            "new_assigned": user_new_tickets["count"],
+            "new_assigned_tickets": user_new_tickets["tickets"],
+            "solved": user_solved_tickets["count"],
+            "solved_tickets": user_solved_tickets["tickets"],
+            "closed": user_closed_tickets["count"],
+            "closed_tickets": user_closed_tickets["tickets"],
+            "cancelled": user_cancelled_tickets["count"],
+            "cancelled_tickets": user_cancelled_tickets["tickets"],
+            "clarification_required": user_clarification_required_tickets["count"],
+            "clarification_required_tickets": user_clarification_required_tickets["tickets"],
+            "clarification_applied": user_clarification_applied_tickets["count"],
+            "clarification_applied_tickets": user_clarification_applied_tickets["tickets"],
+            "ticket_sources": {
+                "requested_by_any": total_user_tickets,
+            }
+        }
+       
+        # Compute for admin_stats and approver_stats (approver style)
+        # Get tickets by status
+        new_tickets = get_tickets_by_status(all_tickets_qs, 'New')
+        solved_tickets = get_tickets_by_status(all_tickets_qs, 'Solved')
+        closed_tickets = get_tickets_by_status(all_tickets_qs, 'Closed')
+        cancelled_tickets = get_tickets_by_status(all_tickets_qs, 'Cancelled')
+        clarification_required_tickets = get_tickets_by_status(all_tickets_qs, 'Clarification Required')
+        clarification_applied_tickets = get_tickets_by_status(all_tickets_qs, 'Clarification Applied')
+       
+        # Total tickets
+        total_tickets = all_tickets_qs.distinct().count()
+       
+        # For admin_stats: all tickets
+        admin_stats = {
+            "total_tickets": total_tickets,
+            "new_assigned": new_tickets["count"],
+            "new_assigned_tickets": new_tickets["tickets"],
+            "solved": solved_tickets["count"],
+            "solved_tickets": solved_tickets["tickets"],
+            "closed": closed_tickets["count"],
+            "closed_tickets": closed_tickets["tickets"],
+            "cancelled": cancelled_tickets["count"],
+            "cancelled_tickets": cancelled_tickets["tickets"],
+            "clarification_required": clarification_required_tickets["count"],
+            "clarification_required_tickets": clarification_required_tickets["tickets"],
+            "clarification_applied": clarification_applied_tickets["count"],
+            "clarification_applied_tickets": clarification_applied_tickets["tickets"],
+            "ticket_sources": {
+                "all_tickets": total_tickets,
+            },
+            "assignment_stats": {
+                "total_assigned_users": sum(len(ticket.get("assigned_users", [])) for ticket in (new_tickets["tickets"] + solved_tickets["tickets"] + closed_tickets["tickets"] + cancelled_tickets["tickets"] + clarification_required_tickets["tickets"] + clarification_applied_tickets["tickets"])),
+                "total_assigned_groups": sum(len(ticket.get("assigned_groups", [])) for ticket in (new_tickets["tickets"] + solved_tickets["tickets"] + closed_tickets["tickets"] + cancelled_tickets["tickets"] + clarification_required_tickets["tickets"] + clarification_applied_tickets["tickets"])),
+                "tickets_with_users": sum(1 for ticket in (new_tickets["tickets"] + solved_tickets["tickets"] + closed_tickets["tickets"] + cancelled_tickets["tickets"] + clarification_required_tickets["tickets"] + clarification_applied_tickets["tickets"]) if ticket.get("assigned_users_count", 0) > 0),
+                "tickets_with_groups": sum(1 for ticket in (new_tickets["tickets"] + solved_tickets["tickets"] + closed_tickets["tickets"] + cancelled_tickets["tickets"] + clarification_required_tickets["tickets"] + clarification_applied_tickets["tickets"]) if ticket.get("assigned_groups_count", 0) > 0),
+                "tickets_with_both": sum(1 for ticket in (new_tickets["tickets"] + solved_tickets["tickets"] + closed_tickets["tickets"] + cancelled_tickets["tickets"] + clarification_required_tickets["tickets"] + clarification_applied_tickets["tickets"]) if ticket.get("assigned_users_count", 0) > 0 and ticket.get("assigned_groups_count", 0) > 0),
+            }
+        }
+       
+        # For approver_stats: filter to tickets with assignments
+        def filter_assigned(status_tickets_dict):
+            filtered_tickets = [t for t in status_tickets_dict["tickets"] if t["has_assignments"]]
+            return {
+                "count": len(filtered_tickets),
+                "tickets": filtered_tickets
+            }
+       
+        new_assigned_filtered = filter_assigned(new_tickets)
+        solved_filtered = filter_assigned(solved_tickets)
+        closed_filtered = filter_assigned(closed_tickets)
+        cancelled_filtered = filter_assigned(cancelled_tickets)
+        clarification_required_filtered = filter_assigned(clarification_required_tickets)
+        clarification_applied_filtered = filter_assigned(clarification_applied_tickets)
+       
+        all_assigned_tickets = (new_assigned_filtered["tickets"] + solved_filtered["tickets"] +
+                                closed_filtered["tickets"] + cancelled_filtered["tickets"] +
+                                clarification_required_filtered["tickets"] + clarification_applied_filtered["tickets"])
+        total_assigned_tickets = len(all_assigned_tickets)
+       
+        approver_stats = {
+            "total_tickets": total_assigned_tickets,
+            "new_assigned": new_assigned_filtered["count"],
+            "new_assigned_tickets": new_assigned_filtered["tickets"],
+            "solved": solved_filtered["count"],
+            "solved_tickets": solved_filtered["tickets"],
+            "closed": closed_filtered["count"],
+            "closed_tickets": closed_filtered["tickets"],
+            "cancelled": cancelled_filtered["count"],
+            "cancelled_tickets": cancelled_filtered["tickets"],
+            "clarification_required": clarification_required_filtered["count"],
+            "clarification_required_tickets": clarification_required_filtered["tickets"],
+            "clarification_applied": clarification_applied_filtered["count"],
+            "clarification_applied_tickets": clarification_applied_filtered["tickets"],
+            "ticket_sources": {
+                "assigned_to_any": total_assigned_tickets,
+            },
+            "assignment_stats": {
+                "total_assigned_users": sum(len(t.get("assigned_users", [])) for t in all_assigned_tickets),
+                "total_assigned_groups": sum(len(t.get("assigned_groups", [])) for t in all_assigned_tickets),
+                "tickets_with_users": sum(1 for t in all_assigned_tickets if t.get("assigned_users_count", 0) > 0),
+                "tickets_with_groups": sum(1 for t in all_assigned_tickets if t.get("assigned_groups_count", 0) > 0),
+                "tickets_with_both": sum(1 for t in all_assigned_tickets if t.get("assigned_users_count", 0) > 0 and t.get("assigned_groups_count", 0) > 0),
+            }
+        }
+       
+        # Prepare response
+        data = {
+            "success": True,
+            "user_email": user_email,
+            "user_stats": user_stats,
+            "approver_stats": approver_stats,
+            "admin_stats": admin_stats,
+            "filters": {
+                "assignee_user": assignee_user,
+                "assignee_group": assignee_group,
+                "entity_id": entity_id,
+                "search": search if search else None,
+                "date_range": {
+                    "start_date": start_date_str,
+                    "end_date": end_date_str
+                } if start_date_str and end_date_str else None
+            }
+        }
+        return Response(data, status=status.HTTP_200_OK)
+ 
+# class AdminTicketView(APIView):
+#     """
+#     Combined Admin Ticket View: Shows stats and tickets for both requested and assigned,
+#     with comparison totals for all statuses.
+#     """
+#     def get(self, request):
+#         # Get query parameters (shared)
+#         start_date_str = request.query_params.get('start_date')
+#         end_date_str = request.query_params.get('end_date')
+#         search = request.query_params.get('search', '').strip()
+#         entity_id = request.query_params.get('entity_id')
+#         assignee_user = request.query_params.get('assignee_user')
+#         assignee_group = request.query_params.get('assignee_group')
+
+#         user_email = request.user.email
+#         current_user_id = request.user.id
+#         current_user_email = request.user.email
+
+#         # Base querysets
+#         user_requested_qs = CreateTicket.objects.filter(requested=request.user)
+#         assigned_tickets_qs = CreateTicket.objects.all().filter(
+#             Q(assigned_users__contains=current_user_id) |
+#             Q(assigned_users__contains=current_user_email) |
+#             Q(assigned_users__contains=f'"{current_user_email}"') |
+#             Q(assignee=current_user_id)
+#         ).distinct()
+
+#         # Apply shared filters to both querysets
+#         if entity_id:
+#             try:
+#                 entity_id = int(entity_id)
+#                 user_requested_qs = user_requested_qs.filter(entity_id=entity_id)
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(entity_id=entity_id)
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid entity_id"}, status=400)
+
+#         if start_date_str and end_date_str:
+#             try:
+#                 start_date = timezone.make_aware(
+#                     timezone.datetime.strptime(start_date_str, '%Y-%m-%d')
+#                 )
+#                 end_date = timezone.make_aware(
+#                     timezone.datetime.strptime(end_date_str, '%Y-%m-%d')
+#                 ) + timedelta(days=1) - timedelta(seconds=1)
+
+#                 user_requested_qs = user_requested_qs.filter(
+#                     created_date__gte=start_date, created_date__lte=end_date
+#                 )
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(
+#                     created_date__gte=start_date, created_date__lte=end_date
+#                 )
+#             except ValueError:
+#                 return Response({"error": "Invalid date format. Use YYYY-MM-DD."},
+#                                 status=status.HTTP_400_BAD_REQUEST)
+
+#         if search:
+#             search_filter = Q(title__icontains=search) | Q(description__icontains=search)
+#             user_requested_qs = user_requested_qs.filter(search_filter)
+#             assigned_tickets_qs = assigned_tickets_qs.filter(search_filter)
+
+#         # Apply assignee filters to assigned_qs only
+#         if assignee_user:
+#             try:
+#                 assignee_user_id = int(assignee_user)
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(
+#                     Q(assigned_users__contains=assignee_user_id) |
+#                     Q(assigned_users__contains=str(assignee_user_id)) |
+#                     Q(assignee=assignee_user_id)
+#                 ).distinct()
+#             except ValueError:
+#                 assignee_email = assignee_user
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(
+#                     Q(assigned_users__contains=assignee_email) |
+#                     Q(assigned_users__contains=f'"{assignee_email}"')
+#                 ).distinct()
+
+#         if assignee_group:
+#             try:
+#                 assignee_group_id = int(assignee_group)
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(
+#                     Q(assigned_groups__contains=assignee_group_id) |
+#                     Q(assigned_groups__contains=str(assignee_group_id)) |
+#                     Q(assigned_group=assignee_group_id)
+#                 ).distinct()
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid assignee_group ID"}, status=400)
+
+#         # Shared helper functions (using Approver's parse for consistency, adapt for requested)
+#         def get_user_details(user_identifier):
+#             """Get user details from ID or email"""
+#             try:
+#                 user_obj = None
+                
+#                 if isinstance(user_identifier, int) or (isinstance(user_identifier, str) and user_identifier.isdigit()):
+#                     user_id = int(user_identifier)
+#                     user_obj = User.objects.get(id=user_id)
+#                 else:
+#                     email = str(user_identifier).strip().strip('"\'')
+#                     user_obj = User.objects.get(email=email)
+                
+#                 return {
+#                     "id": user_obj.id,
+#                     "name": getattr(user_obj, 'firstname', None) or getattr(user_obj, 'name', None) or user_obj.email.split('@')[0],
+#                     "email": user_obj.email,
+#                     "full_name": f"{user_obj.firstname or ''} {user_obj.realname or ''}".strip() or user_obj.email.split('@')[0]
+#                 }
+#             except User.DoesNotExist:
+#                 identifier_str = str(user_identifier)
+#                 return {
+#                     "id": None,
+#                     "name": identifier_str if '@' in identifier_str else f"User {identifier_str}",
+#                     "email": identifier_str if '@' in identifier_str else f"user{identifier_str}@unknown.com",
+#                     "full_name": identifier_str if '@' in identifier_str else f"User {identifier_str}",
+#                     "is_unknown": True
+#                 }
+#             except Exception as e:
+#                 print(f"Error getting user details for {user_identifier}: {e}")
+#                 return {
+#                     "id": None,
+#                     "name": str(user_identifier),
+#                     "email": str(user_identifier) if '@' in str(user_identifier) else f"{user_identifier}@unknown.com",
+#                     "full_name": str(user_identifier),
+#                     "is_unknown": True
+#                 }
+
+#         def get_group_details(group_id):
+#             try:
+#                 if isinstance(group_id, str) and group_id.isdigit():
+#                     group_id = int(group_id)
+                    
+#                 group = UsersGroup.objects.get(id=group_id)
+#                 return {
+#                     "id": group.id,
+#                     "name": group.name,
+#                     "description": group.description if hasattr(group, 'description') else ""
+#                 }
+#             except UsersGroup.DoesNotExist:
+#                 return {
+#                     "id": group_id,
+#                     "name": f"Group {group_id}",
+#                     "description": "Group not found",
+#                     "is_unknown": True
+#                 }
+
+#         def parse_assigned_users(value):
+#             if not value:
+#                 return []
+#             try:
+#                 if isinstance(value, str):
+#                     cleaned_value = value.strip()
+#                     if not cleaned_value or cleaned_value == '[]':
+#                         return []
+#                     parsed = json.loads(cleaned_value)
+#                 else:
+#                     parsed = value
+                
+#                 if not isinstance(parsed, list):
+#                     return []
+                
+#                 result = []
+#                 for item in parsed:
+#                     if item is not None:
+#                         user_detail = get_user_details(item)
+#                         result.append(user_detail)
+#                 return result
+#             except json.JSONDecodeError as e:
+#                 print(f"JSON decode error for assigned_users: {value}, error: {e}")
+#                 result = []
+#                 if isinstance(value, str):
+#                     emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', value)
+#                     for email in emails:
+#                         user_detail = get_user_details(email)
+#                         result.append(user_detail)
+                    
+#                     ids = re.findall(r'\b\d+\b', value)
+#                     for id_str in ids:
+#                         if id_str not in emails:
+#                             user_detail = get_user_details(int(id_str))
+#                             result.append(user_detail)
+#                 return result
+#             except Exception as e:
+#                 print(f"Error parsing assigned_users: {value}, error: {e}")
+#                 return []
+
+#         def parse_assigned_groups(value):
+#             if not value:
+#                 return []
+#             try:
+#                 if isinstance(value, str):
+#                     cleaned_value = value.strip()
+#                     if not cleaned_value or cleaned_value == '[]':
+#                         return []
+#                     parsed = json.loads(cleaned_value)
+#                 else:
+#                     parsed = value
+                
+#                 if not isinstance(parsed, list):
+#                     return []
+                
+#                 result = []
+#                 for item in parsed:
+#                     if item is not None:
+#                         group_detail = get_group_details(item)
+#                         result.append(group_detail)
+#                 return result
+#             except Exception as e:
+#                 print(f"Error parsing assigned_groups: {value}, error: {e}")
+#                 return []
+
+#         # Unified helper for tickets by status (adapted for both requested and assigned)
+#         def get_tickets_by_status(queryset, status_name, is_requested=False):
+#             tickets = queryset.filter(status__field_name__iexact=status_name).distinct().order_by("-ticket_no")
+            
+#             tickets_data = []
+#             seen_ids = set()
+#             for ticket in tickets:
+#                 if ticket.id in seen_ids:
+#                     continue
+#                 seen_ids.add(ticket.id)
+                
+#                 # Parse assigned data (same for both)
+#                 assigned_users = parse_assigned_users(ticket.assigned_users)
+#                 assigned_groups = parse_assigned_groups(ticket.assigned_groups)
+                
+#                 # For requested view, add assignees_detail if needed (merge direct + groups)
+#                 assignees_detail = assigned_users.copy()  # Start with direct
+#                 seen_assignee_ids = {u.get('id') for u in assignees_detail if u.get('id')}
+                
+#                 # Add group members to assignees_detail
+#                 for group in assigned_groups:
+#                     try:
+#                         group_obj = UsersGroup.objects.get(id=group['id'])
+#                         group_members = group_obj.get_users()
+#                         for member in group_members:
+#                             member_id = member.id
+#                             if member_id not in seen_assignee_ids:
+#                                 seen_assignee_ids.add(member_id)
+#                                 assignees_detail.append({
+#                                     "id": member_id,
+#                                     "firstname": getattr(member, 'firstname', None) or getattr(member, 'name', None) or getattr(member, 'username', "Unknown"),
+#                                     "lastname": getattr(member, 'lastname', "") or "",
+#                                     "email": member.email,
+#                                     "name": f"{getattr(member, 'firstname', '')} {getattr(member, 'realname', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
+#                                 })
+#                     except UsersGroup.DoesNotExist:
+#                         pass
+                
+#                 # Check if current user is in assigned (for assigned view consistency)
+#                 current_user_in_assigned = any(
+#                     user.get('id') == current_user_id or user.get('email') == current_user_email 
+#                     for user in assigned_users
+#                 )
+#                 if not current_user_in_assigned and ticket.assignee == current_user_id:
+#                     current_user_detail = get_user_details(current_user_id)
+#                     if current_user_detail:
+#                         assigned_users.append(current_user_detail)
+                
+#                 # Get requested user details
+#                 requested_user_detail = None
+#                 if ticket.requested:
+#                     requested_user_detail = {
+#                         "id": ticket.requested.id,
+#                         "name": (
+#                             getattr(ticket.requested, 'name', None) or 
+#                             getattr(ticket.requested, 'firstname', None) or 
+#                             ticket.requested.email
+#                         ),
+#                         "email": ticket.requested.email
+#                     }
+                
+#                 ticket_dict = {
+#                     "id": ticket.id,
+#                     "ticket_no": ticket.ticket_no,
+#                     "title": ticket.title,
+#                     "description": ticket.description[:100] + "..." if len(ticket.description) > 100 else ticket.description,
+#                     "status": ticket.status.field_name if ticket.status else None,
+#                     "status_detail": {
+#                         "id": ticket.status.id if ticket.status else None,
+#                         "field_name": ticket.status.field_name if ticket.status else None,
+#                         "field_values": ticket.status.field_values if ticket.status else None
+#                     } if ticket.status else None,
+#                     "priority": ticket.priority.field_name if ticket.priority else None,
+#                     "priority_detail": {
+#                         "id": ticket.priority.id if ticket.priority else None,
+#                         "field_name": ticket.priority.field_name if ticket.priority else None,
+#                         "field_values": ticket.priority.field_values if ticket.priority else None
+#                     } if ticket.priority else None,
+#                     "category": ticket.category.category_name if ticket.category else None,
+#                     "category_detail": {
+#                         "id": ticket.category.id if ticket.category else None,
+#                         "category_name": ticket.category.category_name if ticket.category else None,
+#                     } if ticket.category else None,
+#                     "subcategory": ticket.subcategory.subcategory_name if ticket.subcategory else None,
+#                     "subcategory_detail": {
+#                         "id": ticket.subcategory.id if ticket.subcategory else None,
+#                         "subcategory_name": ticket.subcategory.subcategory_name if ticket.subcategory else None
+#                     } if ticket.subcategory else None,
+#                     "department": ticket.department.field_name if ticket.department else None,
+#                     "department_detail": {
+#                         "id": ticket.department.id if ticket.department else None,
+#                         "field_name": ticket.department.field_name if ticket.department else None
+#                     } if ticket.department else None,
+#                     "location": ticket.location.field_name if ticket.location else None,
+#                     "location_detail": {
+#                         "id": ticket.location.id if ticket.location else None,
+#                         "field_name": ticket.location.field_name if ticket.location else None
+#                     } if ticket.location else None,
+#                     "requested_by": ticket.requested.email if ticket.requested else None,
+#                     "requested_detail": requested_user_detail,
+#                     "assignees": assigned_users,  # Detailed user info
+#                     "assigned_users": assigned_users,  # Alias
+#                     "assigned_users_count": len(assigned_users),
+#                     "assigned_groups": assigned_groups,
+#                     "assigned_groups_count": len(assigned_groups),
+#                     "assignees_detail": assignees_detail if is_requested else None,  # For requested view
+#                     "created_date": ticket.created_date,
+#                     "updated_date": getattr(ticket, 'updated_date', ticket.created_date),
+#                     "has_assignments": len(assigned_users) > 0 or len(assigned_groups) > 0,
+#                     "type": "requested" if is_requested else "assigned"  # To distinguish in combined list if needed
+#                 }
+                
+#                 # Legacy fields for compatibility
+#                 if is_requested:
+#                     ticket_dict["assignee"] = ticket.assignee
+#                     ticket_dict["assigned_groups_detail"] = []  # Can populate if needed
+#                     if ticket.assigned_group:
+#                         ticket_dict["assigned_group"] = {
+#                             "id": ticket.assigned_group.id,
+#                             "name": ticket.assigned_group.name
+#                         }
+                
+#                 tickets_data.append(ticket_dict)
+            
+#             return {
+#                 "count": len(tickets_data),
+#                 "tickets": tickets_data
+#             }
+
+#         # Statuses list
+#         statuses = ['New', 'Solved', 'Closed', 'Cancelled', 'Clarification Required', 'Clarification Applied']
+
+#         # Fetch for requested
+#         requested_stats = {}
+#         requested_tickets_all = []
+#         total_requested = user_requested_qs.distinct().count()
+#         for status_name in statuses:
+#             data = get_tickets_by_status(user_requested_qs, status_name, is_requested=True)
+#             requested_stats[status_name.lower().replace(' ', '_')] = data["count"]
+#             requested_tickets_all.extend(data["tickets"])
+
+#         # Fetch for assigned
+#         assigned_stats = {}
+#         assigned_tickets_all = []
+#         total_assigned = assigned_tickets_qs.distinct().count()
+#         for status_name in statuses:
+#             data = get_tickets_by_status(assigned_tickets_qs, status_name, is_requested=False)
+#             assigned_stats[status_name.lower().replace(' ', '_')] = data["count"]
+#             assigned_tickets_all.extend(data["tickets"])
+
+#         # Comparison totals
+#         comparison_stats = {}
+#         for status_name in statuses:
+#             key = status_name.lower().replace(' ', '_')
+#             comparison_stats[key] = requested_stats.get(key, 0) + assigned_stats.get(key, 0)
+
+#         # Combined tickets (optional: all tickets from both)
+#         combined_tickets = requested_tickets_all + assigned_tickets_all
+
+#         # Assignment stats (from assigned only, or combined if needed)
+#         all_assigned_tickets = assigned_tickets_all  # Or extend with requested if overlaps
+#         total_assigned_users = sum(len(t.get("assigned_users", [])) for t in all_assigned_tickets)
+#         total_assigned_groups = sum(len(t.get("assigned_groups", [])) for t in all_assigned_tickets)
+#         tickets_with_users = sum(1 for t in all_assigned_tickets if t.get("assigned_users_count", 0) > 0)
+#         tickets_with_groups = sum(1 for t in all_assigned_tickets if t.get("assigned_groups_count", 0) > 0)
+#         tickets_with_both = sum(1 for t in all_assigned_tickets if t.get("assigned_users_count", 0) > 0 and t.get("assigned_groups_count", 0) > 0)
+
+#         # Prepare response with sections for comparison
+#         data = {
+#             "success": True,
+#             "user_email": user_email,
+#             "total_tickets": {
+#                 "requested": total_requested,
+#                 "assigned": total_assigned,
+#                 "combined": total_requested + total_assigned  # Note: may have overlaps if user requests and assigns to self
+#             },
+#             "requested_stats": requested_stats,
+#             "assigned_stats": assigned_stats,
+#             "comparison_stats": comparison_stats,
+#             "requested_tickets": {  # Nested by status for easy access
+#                 "new": get_tickets_by_status(user_requested_qs, 'New', True)["tickets"],
+#                 "solved": get_tickets_by_status(user_requested_qs, 'Solved', True)["tickets"],
+#                 "closed": get_tickets_by_status(user_requested_qs, 'Closed', True)["tickets"],
+#                 "cancelled": get_tickets_by_status(user_requested_qs, 'Cancelled', True)["tickets"],
+#                 "clarification_required": get_tickets_by_status(user_requested_qs, 'Clarification Required', True)["tickets"],
+#                 "clarification_applied": get_tickets_by_status(user_requested_qs, 'Clarification Applied', True)["tickets"],
+#                 "all": requested_tickets_all
+#             },
+#             "assigned_tickets": {  # Nested by status
+#                 "new": get_tickets_by_status(assigned_tickets_qs, 'New', False)["tickets"],
+#                 "solved": get_tickets_by_status(assigned_tickets_qs, 'Solved', False)["tickets"],
+#                 "closed": get_tickets_by_status(assigned_tickets_qs, 'Closed', False)["tickets"],
+#                 "cancelled": get_tickets_by_status(assigned_tickets_qs, 'Cancelled', False)["tickets"],
+#                 "clarification_required": get_tickets_by_status(assigned_tickets_qs, 'Clarification Required', False)["tickets"],
+#                 "clarification_applied": get_tickets_by_status(assigned_tickets_qs, 'Clarification Applied', False)["tickets"],
+#                 "all": assigned_tickets_all
+#             },
+#             "combined_tickets": combined_tickets,  # Flat list with type flag
+#             "assignment_stats": {  # From assigned
+#                 "total_assigned_users": total_assigned_users,
+#                 "total_assigned_groups": total_assigned_groups,
+#                 "tickets_with_users": tickets_with_users,
+#                 "tickets_with_groups": tickets_with_groups,
+#                 "tickets_with_both": tickets_with_both,
+#             },
+#             "filters": {
+#                 "assignee_user": assignee_user,
+#                 "assignee_group": assignee_group,
+#                 "entity_id": entity_id,
+#                 "search": search if search else None,
+#                 "date_range": {
+#                     "start_date": start_date_str,
+#                     "end_date": end_date_str
+#                 } if start_date_str and end_date_str else None
+#             }
+#         }
+
+#         return Response(data, status=status.HTTP_200_OK)
+
 from datetime import timedelta
 from calendar import monthrange
 from django.utils import timezone
@@ -4573,6 +6363,25 @@ class CreateTicketView(APIView):
         if user in ticket.watchers.all():
             return True
         return False
+
+
+
+class DeleteTicketDocumentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        try:
+            document = TicketDocument.objects.get(id=pk, ticket__requested=request.user)  # Optional: restrict to requester
+            # Or just: document = get_object_or_404(TicketDocument, id=pk)
+            document.file.delete()  # Delete from storage
+            document.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except TicketDocument.DoesNotExist:
+            return Response({"error": "Document not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        
+
 class TicketSLAByIdView(APIView):
     permission_classes = [AllowAny]
 
@@ -6065,3 +7874,5 @@ class PlatformAPIView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+

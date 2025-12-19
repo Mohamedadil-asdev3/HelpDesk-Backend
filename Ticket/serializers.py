@@ -841,7 +841,7 @@ class TicketDocumentSerializer(serializers.ModelSerializer):
 #                 {
 #                     'id': doc.id,
 #                     'file': doc.file.url if doc.file else None,
-#                     'original_name': doc.original_name,
+#                     '': doc.original_name,
 #                 }
 #                 for doc in documents
 #             ]
@@ -1253,14 +1253,14 @@ class CreateTicketSerializer(serializers.ModelSerializer):
 
     # All get_ methods unchanged (omitted for brevity)
     def get_documents(self, obj):
-        """Get documents related to the ticket"""
+        """Get documents related to the ticket using correct related_name"""
         try:
-            documents = TicketDocument.objects.filter(ticket=obj)
+            documents = obj.documents.all()  # ← This is KEY: use related_name="documents"
             return [
                 {
                     'id': doc.id,
                     'file': doc.file.url if doc.file else None,
-                    'original_name': doc.original_name,
+                    'original_name': doc.original_name or doc.file.name.split('/')[-1] if doc.file else "Unknown",
                 }
                 for doc in documents
             ]
@@ -1367,8 +1367,8 @@ class CreateTicketSerializer(serializers.ModelSerializer):
                 return {'name': email, 'email': email}
         
         name = (getattr(user, 'name', None) or
-                getattr(user, 'first_name', '') + ' ' + getattr(user, 'last_name', '')).strip() or user.username or user.email
-        firstname = getattr(user, 'first_name', '') or ''
+                getattr(user, 'firstname', '') + ' ' + getattr(user, 'last_name', '')).strip() or user.username or user.email
+        firstname = getattr(user, 'firstname', '') or ''
         lastname = getattr(user, 'last_name', '') or ''
         details = {'name': name, 'email': email, 'firstname': firstname, 'lastname': lastname}
         if include_id:
@@ -1617,6 +1617,7 @@ class CreateTicketSerializer(serializers.ModelSerializer):
             
             instance.save()
             return instance
+
 class TicketSLASerializer(serializers.ModelSerializer):
     class Meta:
         model = TicketSLA

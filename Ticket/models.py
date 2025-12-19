@@ -317,6 +317,7 @@ class CreateTicket(models.Model):
 class TicketDocument(models.Model):
     id = models.AutoField(primary_key=True)
     ticket = models.ForeignKey(CreateTicket, related_name="documents", on_delete=models.CASCADE)
+    original_name = models.CharField(max_length=255, blank=True, null=True)
     file = models.FileField(upload_to="ticket_documents/")
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
