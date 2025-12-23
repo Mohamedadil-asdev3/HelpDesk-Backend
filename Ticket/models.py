@@ -162,44 +162,44 @@ class Entity(models.Model):
     def __str__(self):
         return self.name    
 
-class TicketCategory(models.Model):
-    id = models.AutoField(primary_key=True)
-    entity= models.ForeignKey(Entity, on_delete=models.CASCADE, db_column='entity_id')
-    department = models.ForeignKey(
-        TicketsMasterConfiguration,
-        on_delete=models.CASCADE,blank=True, null=True,
-        db_column='department_id'
-    )
-    category_name = models.CharField(max_length=255, blank=True, null=True)
-    category_description = models.CharField(max_length=500, null=True,blank=True)
-    is_active = models.CharField(max_length=25, default="Y")
-    created_date = models.DateTimeField(null=True, blank=True)
-    created_by = models.CharField(max_length=255, null=True, blank=True)
-    updated_by = models.CharField(max_length=255, null=True, blank=True)
-    updated_date = models.DateTimeField(null=True, blank=True)
+# class TicketCategory(models.Model):
+#     id = models.AutoField(primary_key=True)
+#     entity= models.ForeignKey(Entity, on_delete=models.CASCADE, db_column='entity_id')
+#     department = models.ForeignKey(
+#         TicketsMasterConfiguration,
+#         on_delete=models.CASCADE,blank=True, null=True,
+#         db_column='department_id'
+#     )
+#     category_name = models.CharField(max_length=255, blank=True, null=True)
+#     category_description = models.CharField(max_length=500, null=True,blank=True)
+#     is_active = models.CharField(max_length=25, default="Y")
+#     created_date = models.DateTimeField(null=True, blank=True)
+#     created_by = models.CharField(max_length=255, null=True, blank=True)
+#     updated_by = models.CharField(max_length=255, null=True, blank=True)
+#     updated_date = models.DateTimeField(null=True, blank=True)
 
-    class Meta:
-        db_table = "tickets_category"
+#     class Meta:
+#         db_table = "tickets_category"
 
 
 
-class TicketSubcategory(models.Model):
-    id = models.AutoField(primary_key=True)
-    entity = models.ForeignKey(Entity, on_delete=models.CASCADE, db_column='entity_id')
-    category = models.ForeignKey(TicketCategory, on_delete=models.CASCADE, db_column='category_id')
-    subcategory_name = models.TextField(blank=True, null=True)
-    subcategory_description = models.CharField(max_length=500, blank=True, null=True)
-    is_active = models.CharField(max_length=25, default='Y')
-    created_date = models.DateTimeField(blank=True, null=True)
-    created_by = models.CharField(max_length=255, blank=True, null=True)
-    updated_by = models.CharField(max_length=255, blank=True, null=True)
-    updated_date = models.DateTimeField(blank=True, null=True)
+# class TicketSubcategory(models.Model):
+#     id = models.AutoField(primary_key=True)
+#     entity = models.ForeignKey(Entity, on_delete=models.CASCADE, db_column='entity_id')
+#     category = models.ForeignKey(TicketCategory, on_delete=models.CASCADE, db_column='category_id')
+#     subcategory_name = models.TextField(blank=True, null=True)
+#     subcategory_description = models.CharField(max_length=500, blank=True, null=True)
+#     is_active = models.CharField(max_length=25, default='Y')
+#     created_date = models.DateTimeField(blank=True, null=True)
+#     created_by = models.CharField(max_length=255, blank=True, null=True)
+#     updated_by = models.CharField(max_length=255, blank=True, null=True)
+#     updated_date = models.DateTimeField(blank=True, null=True)
 
-    class Meta:
-        db_table = 'tickets_subcategory'
+#     class Meta:
+#         db_table = 'tickets_subcategory'
 
-    def __str__(self):
-        return self.subcategory_name or ''
+#     def __str__(self):
+#         return self.subcategory_name or ''
     
 
 
@@ -255,6 +255,59 @@ class TicketSubcategory(models.Model):
 #             last_ticket = CreateTicket.objects.order_by('-id').first()
 #             self.ticket_no = (last_ticket.ticket_no + 1) if last_ticket else 1
 #         super().save(*args, **kwargs)
+
+
+class TicketCategory(models.Model):
+    id = models.AutoField(primary_key=True)
+    entity_ids = models.JSONField(default=list, blank=True)  # Changed to JSONField for multiple entities
+    department = models.ForeignKey(
+        TicketsMasterConfiguration,
+        on_delete=models.CASCADE, blank=True, null=True,
+        db_column='department_id'
+    )
+    category_name = models.CharField(max_length=255, blank=True, null=True)
+    category_description = models.CharField(max_length=500, null=True, blank=True)
+    is_active = models.CharField(max_length=25, default="Y")
+    created_date = models.DateTimeField(null=True, blank=True)
+    created_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_by = models.CharField(max_length=255, null=True, blank=True)
+    updated_date = models.DateTimeField(null=True, blank=True)
+ 
+    class Meta:
+        db_table = "tickets_category"
+ 
+    def save(self, *args, **kwargs):
+        if self.entity_ids:
+            self.entity_ids = sorted(self.entity_ids)  # Ensure consistent order for lookups
+        super().save(*args, **kwargs)
+ 
+ 
+class TicketSubcategory(models.Model):
+    id = models.AutoField(primary_key=True)
+    entity_ids = models.JSONField(default=list, blank=True)  # Changed to JSONField for multiple entities
+    category = models.ForeignKey(TicketCategory, on_delete=models.CASCADE, db_column='category_id')
+    subcategory_name = models.TextField(blank=True, null=True)
+    subcategory_description = models.CharField(max_length=500, blank=True, null=True)
+    is_active = models.CharField(max_length=25, default='Y')
+    created_date = models.DateTimeField(blank=True, null=True)
+    created_by = models.CharField(max_length=255, blank=True, null=True)
+    updated_by = models.CharField(max_length=255, blank=True, null=True)
+    updated_date = models.DateTimeField(blank=True, null=True)
+ 
+    class Meta:
+        db_table = 'tickets_subcategory'
+ 
+    def __str__(self):
+        return self.subcategory_name or ''
+ 
+    def save(self, *args, **kwargs):
+        if self.entity_ids:
+            self.entity_ids = sorted(self.entity_ids)  # Ensure consistent order for lookups
+        super().save(*args, **kwargs)    
+
+
+
+
 class CreateTicket(models.Model):
     id = models.AutoField(primary_key=True)
     ticket_no = models.PositiveIntegerField(unique=True, editable=False)
@@ -338,9 +391,11 @@ class Message(models.Model):
     ticket_no = models.ForeignKey(
         CreateTicket,
         on_delete=models.CASCADE,
-        related_name='ticket_messages'
+        related_name='ticket_messages',
+        db_column='ticket_no'
     )
     message = models.TextField(max_length=500)
+    protected =models.BooleanField(default=False)
     createdon = models.DateTimeField(auto_now_add=True)
  
     class Meta:
@@ -349,6 +404,7 @@ class Message(models.Model):
  
     def __str__(self):
         return f"{self.sender.username} → {self.receiver.username}: {self.message[:50]}"
+    
 class TicketEmailTemplate(models.Model):
     id = models.AutoField(primary_key=True)
     email_event = models.CharField(max_length=45)
@@ -363,42 +419,79 @@ class TicketEmailTemplate(models.Model):
     def __str__(self):
         return f"{self.email_event} ({'Active' if self.is_active == 'Y' else 'Inactive'})"
     
+# class TicketSLA(models.Model):
+#     id = models.AutoField(primary_key=True)
+#     entity = models.ForeignKey('Entity', on_delete=models.CASCADE, related_name='sla_entities', db_column='entity_id')
+#     category = models.ForeignKey('TicketCategory', on_delete=models.CASCADE, related_name='sla_categories', null=True, blank=True, db_column='category_id')
+#     subcategory = models.ForeignKey('TicketSubcategory', on_delete=models.CASCADE, related_name='sla_subcategories', null=True, blank=True, db_column='subcategory_id')
+
+#     Approver_level1_user = models.ForeignKey(USER,on_delete=models.CASCADE, related_name='Approver_level1_user', null=True)
+#     Approver_level1_time = models.CharField(max_length=150, null=True, blank=True)
+#     Approver_level2_user = models.ForeignKey(USER,on_delete=models.CASCADE, related_name='Approver_level2_user', null=True)
+#     Approver_level2_time = models.CharField(max_length=150, null=True, blank=True)
+#     Approver_level3_user = models.ForeignKey(USER,on_delete=models.CASCADE, related_name='Approver_level3_user', null=True)
+#     Approver_level3_time = models.CharField(max_length=150, null=True, blank=True)
+#     Approver_level4_user = models.ForeignKey(USER,on_delete=models.CASCADE, related_name='Approver_level4_user', null=True)
+#     Approver_level4_time = models.CharField(max_length=150, null=True, blank=True)
+#     Approver_level5_user = models.ForeignKey(USER,on_delete=models.CASCADE, related_name='Approver_level5_user', null=True)
+#     Approver_level5_time = models.CharField(max_length=150, null=True, blank=True)
+
+#     Assign_to = models.CharField(max_length=150, null=True, blank=True)
+#     Execution_by = models.CharField(max_length=150, null=True, blank=True)
+#     # on_hold = models.BooleanField(default=False)
+#     # on_hold_start = models.DateTimeField(null=True, blank=True)
+#     is_active = models.CharField(max_length=25, default='Y')
+#     created_date = models.DateTimeField(auto_now_add=True)
+#     updated_date = models.DateTimeField(auto_now=True)
+#     created_by = models.CharField(max_length=255, null=True, blank=True)
+#     updated_by = models.CharField(max_length=255, null=True, blank=True)
+  
+#     class Meta:
+#         db_table = 'tickets_sla'
+#         verbose_name = "Ticket SLA"
+#         verbose_name_plural = "Tickets SLA"
+
+#     def __str__(self):
+#         return f"SLA for {self.category} - {self.subcategory}"
+
+
 class TicketSLA(models.Model):
-    id = models.AutoField(primary_key=True)
-    entity = models.ForeignKey('Entity', on_delete=models.CASCADE, related_name='sla_entities', db_column='entity_id')
+    entity_ids = models.JSONField(default=list, blank=True)  # List of entity IDs as JSON
     category = models.ForeignKey('TicketCategory', on_delete=models.CASCADE, related_name='sla_categories', null=True, blank=True, db_column='category_id')
-    subcategory = models.ForeignKey('TicketSubcategory', on_delete=models.CASCADE, related_name='sla_subcategories', null=True, blank=True, db_column='subcategory_id')
-
-    Approver_level1_user = models.ForeignKey(USER,on_delete=models.CASCADE, related_name='Approver_level1_user', null=True)
+    subcategory_ids = models.JSONField(default=list, blank=True)  # List of subcategory IDs as JSON
+ 
+    Approver_level1_user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name='Approver_level1_user', null=True, db_column='Approver_level1_user_id')
     Approver_level1_time = models.CharField(max_length=150, null=True, blank=True)
-    Approver_level2_user = models.ForeignKey(USER,on_delete=models.CASCADE, related_name='Approver_level2_user', null=True)
+    Approver_level2_user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name='Approver_level2_user', null=True, db_column='Approver_level2_user_id')
     Approver_level2_time = models.CharField(max_length=150, null=True, blank=True)
-    Approver_level3_user = models.ForeignKey(USER,on_delete=models.CASCADE, related_name='Approver_level3_user', null=True)
+    Approver_level3_user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name='Approver_level3_user', null=True, db_column='Approver_level3_user_id')
     Approver_level3_time = models.CharField(max_length=150, null=True, blank=True)
-    Approver_level4_user = models.ForeignKey(USER,on_delete=models.CASCADE, related_name='Approver_level4_user', null=True)
+    Approver_level4_user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name='Approver_level4_user', null=True, db_column='Approver_level4_user_id')
     Approver_level4_time = models.CharField(max_length=150, null=True, blank=True)
-    Approver_level5_user = models.ForeignKey(USER,on_delete=models.CASCADE, related_name='Approver_level5_user', null=True)
+    Approver_level5_user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name='Approver_level5_user', null=True, db_column='Approver_level5_user_id')
     Approver_level5_time = models.CharField(max_length=150, null=True, blank=True)
-
-    Assign_to = models.CharField(max_length=150, null=True, blank=True)
-    Execution_by = models.CharField(max_length=150, null=True, blank=True)
-    # on_hold = models.BooleanField(default=False)
-    # on_hold_start = models.DateTimeField(null=True, blank=True)
+ 
+    assigned_user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name='assigned_user_sla', null=True, blank=True, db_column='assigned_user_id')
+    assigned_group = models.ForeignKey( 'Authenticate.UsersGroup', on_delete=models.CASCADE, related_name='assigned_group_sla', null=True, blank=True, db_column='assigned_group_id')  # Assuming WatcherGroup model exists
+ 
+    confidential = models.CharField(max_length=1, default='N', choices=[('Y', 'Yes'), ('N', 'No')])
+    Execution_by = models.CharField(max_length=150, null=True, blank=True)  # Kept as-is; can be repurposed if needed
+ 
     is_active = models.CharField(max_length=25, default='Y')
     created_date = models.DateTimeField(auto_now_add=True)
     updated_date = models.DateTimeField(auto_now=True)
     created_by = models.CharField(max_length=255, null=True, blank=True)
     updated_by = models.CharField(max_length=255, null=True, blank=True)
-  
+ 
     class Meta:
         db_table = 'tickets_sla'
         verbose_name = "Ticket SLA"
         verbose_name_plural = "Tickets SLA"
-
+ 
     def __str__(self):
-        return f"SLA for {self.category} - {self.subcategory}"
-
-
+        return f"SLA for category {self.category} - subcategories {self.subcategory_ids}"
+ 
+ 
 
 class TicketApprovalLog(models.Model):
 

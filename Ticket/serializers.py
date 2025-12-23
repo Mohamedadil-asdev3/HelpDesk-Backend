@@ -5,9 +5,12 @@ from Ticket.models import Holiday
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from django.db import transaction
+import base64 
+from cryptography.fernet import Fernet
 from Authenticate.models import User,UsersGroup
 import logging
 
+SECRET_KEY = getattr(settings, 'ENCRYPTION_SECRET', b'default_secret_key_change_me_32_bytes_long!!')
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -560,6 +563,127 @@ class RoleSerializer(serializers.ModelSerializer):
         validated_data["field_type"] = "Role"
         # entity_ids is handled directly by JSONField; no pop needed
         return super().update(instance, validated_data)   
+    
+
+class TicketSubcategorySerializer(serializers.ModelSerializer):
+    entity_ids = serializers.ListField(child=serializers.IntegerField(), required=False, default=[])
+    entity_names = serializers.SerializerMethodField()
+ 
+    class Meta:
+        model = TicketSubcategory
+        fields = [
+            'id', 'entity_ids', 'entity_names', 'category_id', 'subcategory_name',
+            'subcategory_description', 'is_active',
+            'created_date', 'created_by', 'updated_by', 'updated_date'
+        ]
+ 
+    def get_entity_names(self, obj):
+        if not obj.entity_ids:
+            return []
+        entities = Entity.objects.filter(id__in=obj.entity_ids)
+        return [e.name for e in entities]
+ 
+    def to_internal_value(self, data):
+        if 'entity_ids' in data:
+            data['entity_ids'] = sorted(data['entity_ids']) if isinstance(data['entity_ids'], list) else []
+        return super().to_internal_value(data)
+ 
+class TicketSLASerializer(serializers.ModelSerializer):
+    assigned_user_detail = serializers.SerializerMethodField()
+    assigned_group_detail = serializers.SerializerMethodField()
+ 
+    class Meta:
+        model = TicketSLA
+        fields = [
+            'assigned_user_id', 'assigned_group_id', 'assigned_user_detail', 'assigned_group_detail',
+            'Approver_level1_user_id', 'Approver_level1_time',
+            'Approver_level2_user_id', 'Approver_level2_time',
+            'Approver_level3_user_id', 'Approver_level3_time',
+            'Approver_level4_user_id', 'Approver_level4_time',
+            'Approver_level5_user_id', 'Approver_level5_time',
+            'is_active'
+        ]
+ 
+    def get_assigned_user_detail(self, obj):
+        if obj.assigned_user_id:
+            try:
+                user = User.objects.get(id=obj.assigned_user_id)
+                return {'id': user.id, 'name': f"{user.firstname}".strip() or user.username or user.email}
+            except User.DoesNotExist:
+                pass
+        return None
+ 
+    def get_assigned_group_detail(self, obj):
+        if obj.assigned_group_id:
+            try:
+                group = UsersGroup.objects.get(id=obj.assigned_group_id)
+                return {'id': group.id, 'name': group.name}
+            except UsersGroup.DoesNotExist:
+                pass
+        return None
+ 
+class TicketCategorySerializer(serializers.ModelSerializer):
+    entity_ids = serializers.ListField(child=serializers.IntegerField(), required=False, default=[])
+    entity_names = serializers.SerializerMethodField()
+    department_name = serializers.CharField(source='department.field_name', read_only=True)  # Adjusted if department has field_name
+ 
+    # Nested subcategories - Fixed to correct reverse relation source
+    subcategories = serializers.SerializerMethodField(read_only=True)  # Use method to ensure all subcategories are fetched
+ 
+    # SLA for assigned_to (shows user/group details)
+    sla = serializers.SerializerMethodField(read_only=True)
+ 
+    # Confidential field (direct from model)
+    confidential = serializers.CharField(read_only=True)
+ 
+    class Meta:
+        model = TicketCategory
+        fields = [
+            'id', 'entity_ids', 'entity_names', 'department_id', 'department_name',
+            'category_name', 'category_description', 'is_active', 'confidential',
+            'created_date', 'created_by', 'updated_by', 'updated_date',
+            'subcategories', 'sla'  # Added for frontend display
+        ]
+        extra_kwargs = {
+            'department_id': {'required': False, 'allow_null': True},
+            'category_name': {'required': False, 'allow_blank': True},
+            'category_description': {'required': False, 'allow_blank': True},
+            'created_date': {'required': False, 'allow_null': True},
+            'created_by': {'required': False, 'allow_null': True},
+            'updated_date': {'required': False, 'allow_null': True},
+            'updated_by': {'required': False, 'allow_null': True},
+        }
+ 
+    def get_entity_names(self, obj):
+        if not obj.entity_ids:
+            return []
+        entities = Entity.objects.filter(id__in=obj.entity_ids)
+        return [e.name for e in entities]  # Assume 'name' field on Entity
+ 
+    def get_subcategories(self, obj):
+        # Explicitly fetch all subcategories for this category (no filter on entity_ids for list view)
+        subcats = TicketSubcategory.objects.filter(category=obj, is_active='Y').order_by('subcategory_name')
+        return TicketSubcategorySerializer(subcats, many=True).data
+ 
+    def get_sla(self, obj):
+        # Get the active SLA for this category (first match; refine with entity_ids if multi-entity)
+        try:
+            # Optional: Filter by entity_ids if needed: entity_ids=obj.entity_ids
+            sla = TicketSLA.objects.filter(category=obj, is_active='Y').first()
+            if sla:
+                return TicketSLASerializer(sla).data
+        except TicketSLA.DoesNotExist:
+            pass
+        return None  # Returns empty or null for no SLA
+ 
+    def to_internal_value(self, data):
+        if 'entity_ids' in data:
+            data['entity_ids'] = sorted(data['entity_ids']) if isinstance(data['entity_ids'], list) else []
+        return super().to_internal_value(data)
+ 
+ 
+ 
+ 
 # class EntitySerializer(serializers.ModelSerializer):
 #     location = TicketsMasterConfigurationSerializer(read_only=True)
 #     location_id = serializers.PrimaryKeyRelatedField(
@@ -688,41 +812,42 @@ class EntitySerializer(serializers.ModelSerializer):
 #             'updated_date': {'required': False, 'allow_null': True},
 #             'updated_by': {'required': False, 'allow_null': True},
 #         }
-class TicketSubcategorySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = TicketSubcategory
-        fields = [
-            'id', 'entity_id', 'category_id', 'subcategory_name', 
-            'subcategory_description', 'is_active', 
-            'created_date', 'created_by', 'updated_by', 'updated_date'
-        ]
+# class TicketSubcategorySerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = TicketSubcategory
+#         fields = [
+#             'id', 'entity_id', 'category_id', 'subcategory_name', 
+#             'subcategory_description', 'is_active', 
+#             'created_date', 'created_by', 'updated_by', 'updated_date'
+#         ]
 
 # Category serializer with nested subcategories
-class TicketCategorySerializer(serializers.ModelSerializer):
-    # Add read-only fields for names based on foreign keys
-    entity_name = serializers.CharField(source='entity.name', read_only=True)
-    department_name = serializers.CharField(source='department.name', read_only=True)
+# class TicketCategorySerializer(serializers.ModelSerializer):
+#     # Add read-only fields for names based on foreign keys
+#     entity_name = serializers.CharField(source='entity.name', read_only=True)
+#     department_name = serializers.CharField(source='department.name', read_only=True)
 
-    # Nested subcategories
-    subcategories = TicketSubcategorySerializer(many=True, read_only=True, source='ticketsubcategory_set')
+#     # Nested subcategories
+#     subcategories = TicketSubcategorySerializer(many=True, read_only=True, source='ticketsubcategory_set')
 
-    class Meta:
-        model = TicketCategory
-        fields = [
-            'id', 'entity_id', 'entity_name', 'department_id', 'department_name', 
-            'category_name', 'category_description', 'is_active', 
-            'created_date', 'created_by', 'updated_by', 'updated_date',
-            'subcategories',  # Include nested subcategories
-        ]
-        extra_kwargs = {
-            'department_id': {'required': False, 'allow_null': True},
-            'category_name': {'required': False, 'allow_blank': True},
-            'category_description': {'required': False, 'allow_blank': True},
-            'created_date': {'required': False, 'allow_null': True},
-            'created_by': {'required': False, 'allow_null': True},
-            'updated_date': {'required': False, 'allow_null': True},
-            'updated_by': {'required': False, 'allow_null': True},
-        }
+#     class Meta:
+#         model = TicketCategory
+#         fields = [
+#             'id', 'entity_id', 'entity_name', 'department_id', 'department_name', 
+#             'category_name', 'category_description', 'is_active', 
+#             'created_date', 'created_by', 'updated_by', 'updated_date',
+#             'subcategories',  # Include nested subcategories
+#         ]
+#         extra_kwargs = {
+#             'department_id': {'required': False, 'allow_null': True},
+#             'category_name': {'required': False, 'allow_blank': True},
+#             'category_description': {'required': False, 'allow_blank': True},
+#             'created_date': {'required': False, 'allow_null': True},
+#             'created_by': {'required': False, 'allow_null': True},
+#             'updated_date': {'required': False, 'allow_null': True},
+#             'updated_by': {'required': False, 'allow_null': True},
+#         }
+
 class TicketDocumentSerializer(serializers.ModelSerializer):
     file = serializers.FileField()
 
@@ -1120,39 +1245,1040 @@ from rest_framework import serializers
 
 logger = logging.getLogger(__name__)
 
+# class CreateTicketSerializer(serializers.ModelSerializer):
+#     # Write-only PKs (unchanged)
+#     type = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='TicketType'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     department = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Department'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     location = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Location'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     platform = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Platform'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     priority = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Priority'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+    
+#     # NEW: Status as writeable PK field (for updates)
+#     status = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Status', is_active='Y'),
+#         write_only=False,  # Allow read/write
+#         required=False,
+#         allow_null=True
+#     )
+    
+#     # Category/Subcategory IDs (unchanged)
+#     category = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketCategory.objects.all(),
+#         write_only=True,
+#         required=False,  # Make optional for updates
+#         allow_null=True
+#     )
+#     subcategory = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketSubcategory.objects.all(),
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+
+#     # Assignment fields - Handle multiples via lists of IDs or emails (unchanged)
+#     assigned_to_type = serializers.ListField(
+#         child=serializers.ChoiceField(choices=[('user', 'User'), ('group', 'Group')]), 
+#         write_only=True, 
+#         required=False
+#     )
+#     assignee = serializers.ListField(  # Multiple user IDs or emails
+#         child=serializers.CharField(), 
+#         write_only=True, 
+#         required=False
+#     )
+#     assigned_group = serializers.ListField(  # Multiple group IDs
+#         child=serializers.IntegerField(), 
+#         write_only=True, 
+#         required=False
+#     )
+
+#     # Read-only details (unchanged)
+#     type_detail = serializers.SerializerMethodField(read_only=True)
+#     department_detail = serializers.SerializerMethodField(read_only=True)
+#     location_detail = serializers.SerializerMethodField(read_only=True)
+#     platform_detail = serializers.SerializerMethodField(read_only=True)
+#     priority_detail = serializers.SerializerMethodField(read_only=True)
+#     category_detail = serializers.SerializerMethodField(read_only=True)
+#     subcategory_detail = serializers.SerializerMethodField(read_only=True)
+#     requested_detail = serializers.SerializerMethodField(read_only=True)
+#     assignees_detail = serializers.SerializerMethodField(read_only=True)
+#     assigned_groups_detail = serializers.SerializerMethodField(read_only=True)
+#     status_detail = serializers.SerializerMethodField(read_only=True)
+    
+#     # Documents field (unchanged)
+#     documents = serializers.SerializerMethodField(read_only=True)
+    
+#     # Watchers field (unchanged)
+#     watchers = serializers.PrimaryKeyRelatedField(
+#         queryset=User.objects.all(),
+#         many=True,
+#         required=False,
+#         write_only=True
+#     )
+
+#     # Title and description - required for create, optional for update (unchanged)
+#     title = serializers.CharField(required=False, allow_blank=True)
+#     description = serializers.CharField(required=False, allow_blank=True)
+
+#     class Meta:
+#         model = CreateTicket
+#         fields = [
+#             'id', 'ticket_no', 'title', 'description', 
+#             'type', 'type_detail', 
+#             'department', 'department_detail',
+#             'location', 'location_detail', 
+#             'platform', 'platform_detail',
+#             'priority', 'priority_detail',
+#             'category', 'category_detail',
+#             'subcategory', 'subcategory_detail',
+#             'status', 'status_detail',  # Now fully included
+#             'assigned_to_type', 'assignee', 'assignees_detail',
+#             'assigned_group', 'assigned_groups_detail',
+#             'requested', 'requested_detail', 'watchers',
+#             'documents', 'sla', 'created_date', 'updated_date', 'closed_on'
+#         ]
+#         read_only_fields = ['id', 'ticket_no', 'created_date', 'updated_date', 'closed_on', 'sla']  # Removed 'status'
+
+#     def __init__(self, *args, **kwargs):
+#         # Detect if this is an update (partial update)
+#         self.partial = kwargs.pop('partial', False)
+#         super().__init__(*args, **kwargs)
+        
+#         # For create, make required fields required (unchanged)
+#         if not self.partial:
+#             self.fields['title'].required = True
+#             self.fields['description'].required = True
+#             self.fields['category'].required = True
+#             # NEW: For create, status is auto-set, so not required here
+
+#     # All get_ methods unchanged (omitted for brevity)
+#     def get_documents(self, obj):
+#         """Get documents related to the ticket using correct related_name"""
+#         try:
+#             documents = obj.documents.all()  # ← This is KEY: use related_name="documents"
+#             return [
+#                 {
+#                     'id': doc.id,
+#                     'file': doc.file.url if doc.file else None,
+#                     'original_name': doc.original_name or doc.file.name.split('/')[-1] if doc.file else "Unknown",
+#                 }
+#                 for doc in documents
+#             ]
+#         except Exception as e:
+#             logger.error(f"Error fetching documents for ticket {obj.id}: {e}")
+#             return []
+
+#     def get_type_detail(self, obj):
+#         if obj.type:
+#             return {'id': obj.type.id, 'field_name': obj.type.field_name}
+#         return None
+
+#     def get_department_detail(self, obj):
+#         if obj.department:
+#             return {'id': obj.department.id, 'field_name': obj.department.field_name}
+#         return None
+
+#     def get_location_detail(self, obj):
+#         if obj.location:
+#             return {'id': obj.location.id, 'field_name': obj.location.field_name}
+#         return None
+
+#     def get_platform_detail(self, obj):
+#         if obj.platform:
+#             return {'id': obj.platform.id, 'field_name': obj.platform.field_name}
+#         return None
+
+#     def get_priority_detail(self, obj):
+#         if obj.priority:
+#             return {'id': obj.priority.id, 'field_name': obj.priority.field_name}
+#         return None
+
+#     def get_category_detail(self, obj):
+#         if obj.category:
+#             return {'id': obj.category.id, 'category_name': obj.category.category_name}
+#         return None
+
+#     def get_subcategory_detail(self, obj):
+#         if obj.subcategory:
+#             return {'id': obj.subcategory.id, 'subcategory_name': obj.subcategory.subcategory_name}
+#         return None
+
+#     def get_requested_detail(self, obj):
+#         if obj.requested:
+#             details = self._safe_get_user_details(obj.requested, include_id=True)
+#             return details
+#         return None
+
+#     def get_status_detail(self, obj):
+#         if obj.status:
+#             return {'id': obj.status.id, 'field_name': obj.status.field_name, 'field_values': obj.status.field_values}
+#         return None
+
+#     def get_assignees_detail(self, obj):
+#         """Get details for assignees from JSON field"""
+#         assignees = obj.assigned_users or []
+#         if assignees:
+#             return [
+#                 self._safe_get_user_details(assignee_email, include_id=True)
+#                 for assignee_email in assignees
+#             ]
+#         return []
+
+#     def get_assigned_groups_detail(self, obj):
+#         """Get details for assigned groups from JSON field - Enhanced with members list"""
+#         assigned_groups = obj.assigned_groups or []
+#         if assigned_groups:
+#             groups_detail = []
+#             for group_id in assigned_groups:
+#                 try:
+#                     group = UsersGroup.objects.get(id=group_id)
+#                     members = group.get_users()  # Assuming get_users() returns a queryset of User objects
+#                     groups_detail.append({
+#                         "id": group_id,
+#                         "name": group.name,
+#                         "members_count": members.count(),
+#                         "members": [
+#                             self._safe_get_user_details(member, include_id=True)
+#                             for member in members
+#                         ]
+#                     })
+#                 except UsersGroup.DoesNotExist:
+#                     logger.warning(f"Group with ID {group_id} not found for ticket {obj.id}")
+#                     groups_detail.append({
+#                         "id": group_id,
+#                         "name": f"Group {group_id} (Not Found)",
+#                         "members_count": 0,
+#                         "members": []
+#                     })
+#             return groups_detail
+#         return []
+
+#     # Helper methods unchanged (omitted for brevity)
+#     def _safe_get_user_details(self, user_or_email, include_id=False):
+#         """Inline alternative to get_user_details - safe user details without external import"""
+#         if isinstance(user_or_email, User):
+#             user = user_or_email
+#             email = user.email
+#         else:
+#             email = user_or_email
+#             try:
+#                 user = User.objects.get(email=email)
+#             except User.DoesNotExist:
+#                 return {'name': email, 'email': email}
+        
+#         name = (getattr(user, 'name', None) or
+#                 getattr(user, 'firstname', '') + ' ' + getattr(user, 'last_name', '')).strip() or user.username or user.email
+#         firstname = getattr(user, 'firstname', '') or ''
+#         lastname = getattr(user, 'last_name', '') or ''
+#         details = {'name': name, 'email': email, 'firstname': firstname, 'lastname': lastname}
+#         if include_id:
+#             details['id'] = user.id
+#         return details
+
+#     def _get_user_id_by_email(self, email):
+#         try:
+#             user = User.objects.get(email=email)
+#             return user.id
+#         except User.DoesNotExist:
+#             return None
+
+#     def _get_user_name_by_email(self, email):
+#         return self._safe_get_user_details(email)['name']
+
+#     def _get_group_name_by_id(self, group_id):
+#         try:
+#             group = UsersGroup.objects.get(id=group_id)
+#             return group.name
+#         except UsersGroup.DoesNotExist:
+#             return f"Group {group_id}"
+
+#     def _get_group_members_count(self, group_id):
+#         try:
+#             group = UsersGroup.objects.get(id=group_id)
+#             return group.get_users().count()
+#         except UsersGroup.DoesNotExist:
+#             return 0
+
+#     def validate(self, data):
+#         """Validate required fields - lenient for partial updates"""
+#         if not self.partial:
+#             # For create: enforce required fields
+#             if 'title' not in data or not data['title'].strip():
+#                 raise serializers.ValidationError({"title": "This field is required."})
+#             if 'description' not in data or not data['description'].strip():
+#                 raise serializers.ValidationError({"description": "This field is required."})
+#             if 'category' not in data or not data['category']:
+#                 raise serializers.ValidationError({"category": "This field is required."})
+#         else:
+#             # For update: optional, but validate if provided
+#             if 'title' in data and not data['title'].strip():
+#                 raise serializers.ValidationError({"title": "Title cannot be empty."})
+#             if 'description' in data and not data['description'].strip():
+#                 raise serializers.ValidationError({"description": "Description cannot be empty."})
+#             if 'category' in data and not data['category']:
+#                 raise serializers.ValidationError({"category": "Category cannot be empty."})
+        
+#         # NEW: Validate status if provided (mandatory single value from valid options)
+#         status = data.get('status')
+#         if status:
+#             if not isinstance(status, TicketsMasterConfiguration) or status.field_type != 'Status' or status.is_active != 'Y':
+#                 raise serializers.ValidationError({"status": "Invalid or inactive status provided."})
+#         # For create, status is auto-set in create(), so no further check here
+        
+#         # Handle FormData lists (unchanged)
+#         assigned_to_type_list = data.get('assigned_to_type', [])
+#         if isinstance(assigned_to_type_list, list):
+#             assigned_to_type = [t for t in assigned_to_type_list if t in ['user', 'group']]
+#             data['assigned_to_type'] = assigned_to_type
+#         else:
+#             assigned_to_type = []
+
+#         # Convert assignee IDs or emails to emails (unchanged)
+#         assignee_list = data.get('assignee', [])
+#         if isinstance(assignee_list, list):
+#             emails = []
+#             for item in assignee_list:
+#                 if isinstance(item, str) and '@' in item:
+#                     emails.append(item)
+#                 else:
+#                     try:
+#                         user_id = int(str(item))
+#                         user = User.objects.get(id=user_id)
+#                         emails.append(user.email)
+#                     except (ValueError, User.DoesNotExist):
+#                         pass
+#             data['assignee'] = emails
+#         else:
+#             data['assignee'] = []
+
+#         # Validate emails exist (only if provided) (unchanged)
+#         assignees = data['assignee']
+#         for email in assignees:
+#             if not User.objects.filter(email=email).exists():
+#                 raise serializers.ValidationError({"assignee": f"User with email {email} does not exist."})
+
+#         assigned_group_list = data.get('assigned_group', [])
+#         if isinstance(assigned_group_list, list):
+#             data['assigned_group'] = [int(g) for g in assigned_group_list if isinstance(g, (str, int))]
+#         else:
+#             data['assigned_group'] = []
+
+#         # Validate groups exist (only if provided) (unchanged)
+#         assigned_groups = data['assigned_group']
+#         for gid in assigned_groups:
+#             if not UsersGroup.objects.filter(id=gid).exists():
+#                 raise serializers.ValidationError({"assigned_group": f"Group {gid} does not exist."})
+        
+#         has_user = 'user' in assigned_to_type
+#         has_group = 'group' in assigned_to_type
+        
+#         if has_user and not assignees:
+#             raise serializers.ValidationError({"assignee": "At least one user email required if User is selected."})
+#         if has_group and not assigned_groups:
+#             raise serializers.ValidationError({"assigned_group": "At least one group ID required if Group is selected."})
+        
+#         return data
+#     def create(self, validated_data):
+#         """Create new ticket - auto set department & location from logged-in user"""
+#         request = self.context.get("request")
+#         user = request.user if request else None
+
+#         with transaction.atomic():
+#             # Pop list fields
+#             assigned_to_type = validated_data.pop('assigned_to_type', [])
+#             assignees = validated_data.pop('assignee', [])
+#             assigned_groups = validated_data.pop('assigned_group', [])
+#             watchers = validated_data.pop('watchers', [])
+
+#             # ✅ AUTO SET DEPARTMENT & LOCATION FROM USER
+#             if user:
+#                 # Department
+#                 if not validated_data.get('department') and user.department_id:
+#                     validated_data['department'] = user.department_id
+
+#                 # Location
+#                 if not validated_data.get('location') and user.locations:
+#                     validated_data['location'] = user.locations
+
+#             # ✅ Default Status = "New"
+#             if 'status' not in validated_data:
+#                 try:
+#                     validated_data['status'] = TicketsMasterConfiguration.objects.get(
+#                         field_type='Status',
+#                         field_name='New',
+#                         is_active='Y'
+#                     )
+#                 except TicketsMasterConfiguration.DoesNotExist:
+#                     raise serializers.ValidationError({
+#                         "status": "Default 'New' status not found."
+#                     })
+
+#             # Create ticket
+#             instance = super().create(validated_data)
+
+#             # Save assignments
+#             instance.assigned_users = assignees
+#             instance.assigned_groups = assigned_groups
+#             instance.save()
+
+#             # Add watchers
+#             for watcher in watchers:
+#                 instance.watchers.add(watcher)
+
+#             return instance
+
+#     # def create(self, validated_data):
+#     #     """Create new ticket - set default status to 'New' and handle lists"""
+#     #     with transaction.atomic():
+#     #         # Pop list fields to avoid passing to super().create
+#     #         assigned_to_type = validated_data.pop('assigned_to_type', [])
+#     #         assignees = validated_data.pop('assignee', [])  # list of emails
+#     #         assigned_groups = validated_data.pop('assigned_group', [])
+#     #         watchers = validated_data.pop('watchers', [])
+            
+#     #         # Set default status to 'New' if not provided
+#     #         if 'status' not in validated_data:
+#     #             try:
+#     #                 new_status = TicketsMasterConfiguration.objects.get(
+#     #                     field_type='Status', 
+#     #                     field_name='New', 
+#     #                     is_active='Y'
+#     #                 )
+#     #                 validated_data['status'] = new_status
+#     #             except TicketsMasterConfiguration.DoesNotExist:
+#     #                 raise serializers.ValidationError({"status": "Default 'New' status not found."})
+            
+#     #         # Create instance with remaining data (no lists)
+#     #         instance = super().create(validated_data)
+            
+#     #         # Set JSON fields for multiples
+#     #         instance.assigned_users = assignees  # store emails
+#     #         instance.assigned_groups = assigned_groups  # store IDs
+#     #         instance.save()
+            
+#     #         # Add watchers if provided
+#     #         for watcher in watchers:
+#     #             instance.watchers.add(watcher)
+            
+#     #         return instance
+
+#     def update(self, instance, validated_data):
+#         """Update ticket - partial updates supported"""
+#         with transaction.atomic():
+#             # Pop list fields if present
+#             assigned_to_type = validated_data.pop('assigned_to_type', None)
+#             assignees = validated_data.pop('assignee', None)
+#             assigned_groups = validated_data.pop('assigned_group', None)
+#             watchers = validated_data.pop('watchers', None)
+            
+#             # Update basic fields (only those provided) - now includes status
+#             for attr, value in validated_data.items():
+#                 setattr(instance, attr, value)
+            
+#             # Handle assignment changes (multiple) - FIXED: Additive unless explicitly empty
+#             if assigned_to_type is not None:
+#                 # Only clear if explicitly empty; otherwise append
+#                 if not assigned_to_type:
+#                     instance.assigned_users = []
+#                     instance.assigned_groups = []
+#                 else:
+#                     if 'user' in assigned_to_type:
+#                         if assignees:  # Append if provided
+#                             if instance.assigned_users is None:
+#                                 instance.assigned_users = []
+#                             instance.assigned_users.extend([e for e in assignees if e not in instance.assigned_users])
+#                         # Add new to watchers
+#                         for email in assignees or []:
+#                             try:
+#                                 user = User.objects.get(email=email)
+#                                 if user not in instance.watchers.all():
+#                                     instance.watchers.add(user)
+#                             except User.DoesNotExist:
+#                                 pass
+#                     if 'group' in assigned_to_type:
+#                         if assigned_groups:  # Append if provided
+#                             if instance.assigned_groups is None:
+#                                 instance.assigned_groups = []
+#                             instance.assigned_groups.extend([g for g in assigned_groups if g not in instance.assigned_groups])
+#                         # Add new group members to watchers
+#                         for group_id in assigned_groups or []:
+#                             try:
+#                                 group = UsersGroup.objects.get(id=group_id)
+#                                 group_users = group.get_users()
+#                                 for member in group_users:
+#                                     if member not in instance.watchers.all():
+#                                         instance.watchers.add(member)
+#                             except UsersGroup.DoesNotExist:
+#                                 pass
+            
+#             # Update watchers if provided (set overrides, but could be made additive)
+#             if watchers is not None:
+#                 instance.watchers.set(watchers)
+            
+#             instance.save()
+#             return instance
+
+# class CreateTicketSerializer(serializers.ModelSerializer):
+#     # Write-only PKs (unchanged)
+#     # entity = serializers.PrimaryKeyRelatedField(
+#     #     queryset=Entity.objects.all(),
+#     #     write_only=True,
+#     #     required=False,
+#     #     allow_null=True
+#     # )
+#     entity_id = serializers.PrimaryKeyRelatedField(
+#         source='entity',
+#         queryset=Entity.objects.all(),
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     type = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='TicketType'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     department = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Department'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     location = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Location'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     platform = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Platform'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     priority = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Priority'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+    
+#     # NEW: Status as writeable PK field (for updates)
+#     status = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Status', is_active='Y'),
+#         write_only=False,  # Allow read/write
+#         required=False,
+#         allow_null=True
+#     )
+    
+#     # Category/Subcategory IDs (unchanged)
+#     category = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketCategory.objects.all(),
+#         write_only=True,
+#         required=False,  # Make optional for updates
+#         allow_null=True
+#     )
+#     subcategory = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketSubcategory.objects.all(),
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+
+#     # Assignment fields - Handle multiples via lists of IDs or emails (unchanged)
+#     assigned_to_type = serializers.ListField(
+#         child=serializers.ChoiceField(choices=[('user', 'User'), ('group', 'Group')]), 
+#         write_only=True, 
+#         required=False
+#     )
+#     assignee = serializers.ListField(  # Multiple user IDs or emails
+#         child=serializers.CharField(), 
+#         write_only=True, 
+#         required=False
+#     )
+#     assigned_group = serializers.ListField(  # Multiple group IDs
+#         child=serializers.IntegerField(), 
+#         write_only=True, 
+#         required=False
+#     )
+
+#     # Read-only details (unchanged)
+#     type_detail = serializers.SerializerMethodField(read_only=True)
+#     department_detail = serializers.SerializerMethodField(read_only=True)
+#     location_detail = serializers.SerializerMethodField(read_only=True)
+#     platform_detail = serializers.SerializerMethodField(read_only=True)
+#     priority_detail = serializers.SerializerMethodField(read_only=True)
+#     category_detail = serializers.SerializerMethodField(read_only=True)
+#     subcategory_detail = serializers.SerializerMethodField(read_only=True)
+#     requested_detail = serializers.SerializerMethodField(read_only=True)
+#     assignees_detail = serializers.SerializerMethodField(read_only=True)
+#     assigned_groups_detail = serializers.SerializerMethodField(read_only=True)
+#     status_detail = serializers.SerializerMethodField(read_only=True)
+    
+#     # Documents field (unchanged)
+#     documents = serializers.SerializerMethodField(read_only=True)
+    
+#     # Watchers field (unchanged)
+#     watchers = serializers.PrimaryKeyRelatedField(
+#         queryset=User.objects.all(),
+#         many=True,
+#         required=False,
+#         write_only=True
+#     )
+
+#     # Title and description - required for create, optional for update (unchanged)
+#     title = serializers.CharField(required=False, allow_blank=True)
+#     description = serializers.CharField(required=False, allow_blank=True)
+
+#     class Meta:
+#         model = CreateTicket
+#         fields = [
+#             'id', 'ticket_no', 'title', 'description', 
+#             # 'entity',
+#             'entity_id',
+#             'type', 'type_detail', 
+#             'department', 'department_detail',
+#             'location', 'location_detail', 
+#             'platform', 'platform_detail',
+#             'priority', 'priority_detail',
+#             'category', 'category_detail',
+#             'subcategory', 'subcategory_detail',
+#             'status', 'status_detail',  # Now fully included
+#             'assigned_to_type', 'assignee', 'assignees_detail',
+#             'assigned_group', 'assigned_groups_detail',
+#             'requested', 'requested_detail', 'watchers',
+#             'documents', 'sla', 'created_date', 'updated_date', 'closed_on'
+#         ]
+#         read_only_fields = ['id', 'ticket_no', 'created_date', 'updated_date', 'closed_on', 'sla']  # Removed 'status'
+
+#     def __init__(self, *args, **kwargs):
+#         self.partial = kwargs.pop('partial', False)
+#         super().__init__(*args, **kwargs)
+        
+#         if not self.partial:
+#             self.fields['title'].required = True
+#             self.fields['description'].required = True
+#             self.fields['category'].required = True
+#             self.fields['entity_id'].required = True
+#     # def __init__(self, *args, **kwargs):
+#     #     # Detect if this is an update (partial update)
+#     #     self.partial = kwargs.pop('partial', False)
+#     #     super().__init__(*args, **kwargs)
+        
+#     #     # For create, make required fields required (unchanged)
+#     #     if not self.partial:
+#     #         self.fields['title'].required = True
+#     #         self.fields['description'].required = True
+#     #         self.fields['category'].required = True
+#             # NEW: For create, status is auto-set, so not required here
+
+#     # All get_ methods unchanged (omitted for brevity)
+#     def get_documents(self, obj):
+#         """Get documents related to the ticket"""
+#         try:
+#             documents = TicketDocument.objects.filter(ticket=obj)
+#             return [
+#                 {
+#                     'id': doc.id,
+#                     'file': doc.file.url if doc.file else None,
+#                     'original_name': doc.original_name,
+#                 }
+#                 for doc in documents
+#             ]
+#         except Exception as e:
+#             logger.error(f"Error fetching documents for ticket {obj.id}: {e}")
+#             return []
+
+#     def get_type_detail(self, obj):
+#         if obj.type:
+#             return {'id': obj.type.id, 'field_name': obj.type.field_name}
+#         return None
+
+#     def get_department_detail(self, obj):
+#         if obj.department:
+#             return {'id': obj.department.id, 'field_name': obj.department.field_name}
+#         return None
+
+#     def get_location_detail(self, obj):
+#         if obj.location:
+#             return {'id': obj.location.id, 'field_name': obj.location.field_name}
+#         return None
+
+#     def get_platform_detail(self, obj):
+#         if obj.platform:
+#             return {'id': obj.platform.id, 'field_name': obj.platform.field_name}
+#         return None
+
+#     def get_priority_detail(self, obj):
+#         if obj.priority:
+#             return {'id': obj.priority.id, 'field_name': obj.priority.field_name}
+#         return None
+
+#     def get_category_detail(self, obj):
+#         if obj.category:
+#             return {'id': obj.category.id, 'category_name': obj.category.category_name}
+#         return None
+
+#     def get_subcategory_detail(self, obj):
+#         if obj.subcategory:
+#             return {'id': obj.subcategory.id, 'subcategory_name': obj.subcategory.subcategory_name}
+#         return None
+
+#     def get_requested_detail(self, obj):
+#         if obj.requested:
+#             details = self._safe_get_user_details(obj.requested, include_id=True)
+#             return details
+#         return None
+
+#     def get_status_detail(self, obj):
+#         if obj.status:
+#             return {'id': obj.status.id, 'field_name': obj.status.field_name, 'field_values': obj.status.field_values}
+#         return None
+
+#     def get_assignees_detail(self, obj):
+#         """Get details for assignees from JSON field"""
+#         assignees = obj.assigned_users or []
+#         if assignees:
+#             return [
+#                 self._safe_get_user_details(assignee_email, include_id=True)
+#                 for assignee_email in assignees
+#             ]
+#         return []
+
+#     def get_assigned_groups_detail(self, obj):
+#         """Get details for assigned groups from JSON field - Enhanced with members list"""
+#         assigned_groups = obj.assigned_groups or []
+#         if assigned_groups:
+#             groups_detail = []
+#             for group_id in assigned_groups:
+#                 try:
+#                     group = UsersGroup.objects.get(id=group_id)
+#                     members = group.get_users()  # Assuming get_users() returns a queryset of User objects
+#                     groups_detail.append({
+#                         "id": group_id,
+#                         "name": group.name,
+#                         "members_count": members.count(),
+#                         "members": [
+#                             self._safe_get_user_details(member, include_id=True)
+#                             for member in members
+#                         ]
+#                     })
+#                 except UsersGroup.DoesNotExist:
+#                     logger.warning(f"Group with ID {group_id} not found for ticket {obj.id}")
+#                     groups_detail.append({
+#                         "id": group_id,
+#                         "name": f"Group {group_id} (Not Found)",
+#                         "members_count": 0,
+#                         "members": []
+#                     })
+#             return groups_detail
+#         return []
+
+#     # Helper methods unchanged (omitted for brevity)
+#     def _safe_get_user_details(self, user_or_email, include_id=False):
+#         """Inline alternative to get_user_details - safe user details without external import"""
+#         if isinstance(user_or_email, User):
+#             user = user_or_email
+#             email = user.email
+#         else:
+#             email = user_or_email
+#             try:
+#                 user = User.objects.get(email=email)
+#             except User.DoesNotExist:
+#                 return {'name': email, 'email': email}
+        
+#         name = (getattr(user, 'name', None) or
+#                 getattr(user, 'first_name', '') + ' ' + getattr(user, 'last_name', '')).strip() or user.username or user.email
+#         firstname = getattr(user, 'first_name', '') or ''
+#         lastname = getattr(user, 'last_name', '') or ''
+#         details = {'name': name, 'email': email, 'firstname': firstname, 'lastname': lastname}
+#         if include_id:
+#             details['id'] = user.id
+#         return details
+
+#     def _get_user_id_by_email(self, email):
+#         try:
+#             user = User.objects.get(email=email)
+#             return user.id
+#         except User.DoesNotExist:
+#             return None
+
+#     def _get_user_name_by_email(self, email):
+#         return self._safe_get_user_details(email)['name']
+
+#     def _get_group_name_by_id(self, group_id):
+#         try:
+#             group = UsersGroup.objects.get(id=group_id)
+#             return group.name
+#         except UsersGroup.DoesNotExist:
+#             return f"Group {group_id}"
+
+#     def _get_group_members_count(self, group_id):
+#         try:
+#             group = UsersGroup.objects.get(id=group_id)
+#             return group.get_users().count()
+#         except UsersGroup.DoesNotExist:
+#             return 0
+
+#     def validate(self, data):
+#         """Validate required fields - lenient for partial updates"""
+#         if not self.partial:
+#             # For create: enforce required fields
+#             if 'title' not in data or not data['title'].strip():
+#                 raise serializers.ValidationError({"title": "This field is required."})
+#             if 'description' not in data or not data['description'].strip():
+#                 raise serializers.ValidationError({"description": "This field is required."})
+#             if 'category' not in data or not data['category']:
+#                 raise serializers.ValidationError({"category": "This field is required."})
+#         else:
+#             # For update: optional, but validate if provided
+#             if 'title' in data and not data['title'].strip():
+#                 raise serializers.ValidationError({"title": "Title cannot be empty."})
+#             if 'description' in data and not data['description'].strip():
+#                 raise serializers.ValidationError({"description": "Description cannot be empty."})
+#             if 'category' in data and not data['category']:
+#                 raise serializers.ValidationError({"category": "Category cannot be empty."})
+        
+#         # NEW: Validate entity, category, subcategory consistency
+#         entity = data.get('entity')
+#         category = data.get('category')
+#         subcategory = data.get('subcategory')
+
+#         if entity and category:
+#             if category.entity != entity:
+#                 raise serializers.ValidationError({
+#                     'category': f"Selected category does not belong to entity '{entity.name}'."
+#                 })
+
+#         if entity and subcategory:
+#             if subcategory.entity != entity or subcategory.category != category:
+#                 raise serializers.ValidationError({
+#                     'subcategory': f"Selected subcategory does not belong to entity '{entity.name}' or category '{category.category_name}'."
+#                 })
+        
+#         # NEW: Validate status if provided (mandatory single value from valid options)
+#         status = data.get('status')
+#         if status:
+#             if not isinstance(status, TicketsMasterConfiguration) or status.field_type != 'Status' or status.is_active != 'Y':
+#                 raise serializers.ValidationError({"status": "Invalid or inactive status provided."})
+#         # For create, status is auto-set in create(), so no further check here
+        
+#         # Handle FormData lists (unchanged)
+#         assigned_to_type_list = data.get('assigned_to_type', [])
+#         if isinstance(assigned_to_type_list, list):
+#             assigned_to_type = [t for t in assigned_to_type_list if t in ['user', 'group']]
+#             data['assigned_to_type'] = assigned_to_type
+#         else:
+#             assigned_to_type = []
+
+#         # Convert assignee IDs or emails to emails (unchanged)
+#         assignee_list = data.get('assignee', [])
+#         if isinstance(assignee_list, list):
+#             emails = []
+#             for item in assignee_list:
+#                 if isinstance(item, str) and '@' in item:
+#                     emails.append(item)
+#                 else:
+#                     try:
+#                         user_id = int(str(item))
+#                         user = User.objects.get(id=user_id)
+#                         emails.append(user.email)
+#                     except (ValueError, User.DoesNotExist):
+#                         pass
+#             data['assignee'] = emails
+#         else:
+#             data['assignee'] = []
+
+#         # Validate emails exist (only if provided) (unchanged)
+#         assignees = data['assignee']
+#         for email in assignees:
+#             if not User.objects.filter(email=email).exists():
+#                 raise serializers.ValidationError({"assignee": f"User with email {email} does not exist."})
+
+#         assigned_group_list = data.get('assigned_group', [])
+#         if isinstance(assigned_group_list, list):
+#             data['assigned_group'] = [int(g) for g in assigned_group_list if isinstance(g, (str, int))]
+#         else:
+#             data['assigned_group'] = []
+
+#         # Validate groups exist (only if provided) (unchanged)
+#         assigned_groups = data['assigned_group']
+#         for gid in assigned_groups:
+#             if not UsersGroup.objects.filter(id=gid).exists():
+#                 raise serializers.ValidationError({"assigned_group": f"Group {gid} does not exist."})
+        
+#         has_user = 'user' in assigned_to_type
+#         has_group = 'group' in assigned_to_type
+        
+#         if has_user and not assignees:
+#             raise serializers.ValidationError({"assignee": "At least one user email required if User is selected."})
+#         if has_group and not assigned_groups:
+#             raise serializers.ValidationError({"assigned_group": "At least one group ID required if Group is selected."})
+        
+#         return data
+
+#     def create(self, validated_data):
+#         """Create new ticket - set default status to 'New' and handle lists"""
+#         with transaction.atomic():
+#             # Pop list fields to avoid passing to super().create
+#             assigned_to_type = validated_data.pop('assigned_to_type', [])
+#             assignees = validated_data.pop('assignee', [])  # list of emails
+#             assigned_groups = validated_data.pop('assigned_group', [])
+#             watchers = validated_data.pop('watchers', [])
+            
+#             # Set default status to 'New' if not provided
+#             if 'status' not in validated_data:
+#                 try:
+#                     new_status = TicketsMasterConfiguration.objects.get(
+#                         field_type='Status', 
+#                         field_name='New', 
+#                         is_active='Y'
+#                     )
+#                     validated_data['status'] = new_status
+#                 except TicketsMasterConfiguration.DoesNotExist:
+#                     raise serializers.ValidationError({"status": "Default 'New' status not found."})
+            
+#             # Create instance with remaining data (no lists)
+#             instance = super().create(validated_data)
+            
+#             # Set JSON fields for multiples
+#             instance.assigned_users = assignees  # store emails
+#             instance.assigned_groups = assigned_groups  # store IDs
+#             instance.save()
+            
+#             # Add watchers if provided
+#             for watcher in watchers:
+#                 instance.watchers.add(watcher)
+            
+#             return instance
+
+#     def update(self, instance, validated_data):
+        
+#         with transaction.atomic():
+#             # Pop list fields if present (so they don't interfere with basic updates)
+#             assigned_to_type = validated_data.pop('assigned_to_type', None)
+#             assignees = validated_data.pop('assignee', None)
+#             assigned_groups = validated_data.pop('assigned_group', None)
+#             watchers = validated_data.pop('watchers', None)
+            
+#             # Update all simple fields from validated_data (including status, title, etc.)
+#             for attr, value in validated_data.items():
+#                 setattr(instance, attr, value)  # ← FIXED: Now passes the value
+
+#             # Handle assignments (additive behavior - only adds new ones)
+#             if assigned_to_type is not None:
+#                 if not assigned_to_type:
+#                     # Explicitly empty → clear assignments
+#                     instance.assigned_users = []
+#                     instance.assigned_groups = []
+#                 else:
+#                     # Add new users
+#                     if 'user' in assigned_to_type and assignees:
+#                         if instance.assigned_users is None:
+#                             instance.assigned_users = []
+#                         for email in assignees:
+#                             if email not in instance.assigned_users:
+#                                 instance.assigned_users.append(email)
+                        
+#                         # Add users to watchers
+#                         for email in assignees:
+#                             try:
+#                                 user = User.objects.get(email=email)
+#                                 if user not in instance.watchers.all():
+#                                     instance.watchers.add(user)
+#                             except User.DoesNotExist:
+#                                 pass
+
+#                     # Add new groups
+#                     if 'group' in assigned_to_type and assigned_groups:
+#                         if instance.assigned_groups is None:
+#                             instance.assigned_groups = []
+#                         for gid in assigned_groups:
+#                             if gid not in instance.assigned_groups:
+#                                 instance.assigned_groups.append(gid)
+                        
+#                         # Add group members to watchers
+#                         for group_id in assigned_groups:
+#                             try:
+#                                 group = UsersGroup.objects.get(id=group_id)
+#                                 for member in group.get_users():
+#                                     if member not in instance.watchers.all():
+#                                         instance.watchers.add(member)
+#                             except UsersGroup.DoesNotExist:
+#                                 pass
+
+#             # Override watchers if explicitly provided
+#             if watchers is not None:
+#                 instance.watchers.set(watchers)
+            
+#             instance.save()
+#             return instance
+
 class CreateTicketSerializer(serializers.ModelSerializer):
     # Write-only PKs (unchanged)
+    entity = serializers.PrimaryKeyRelatedField(
+        queryset=Entity.objects.all(),
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
     type = serializers.PrimaryKeyRelatedField(
-        queryset=TicketsMasterConfiguration.objects.filter(field_type='TicketType'), 
+        queryset=TicketsMasterConfiguration.objects.filter(field_type='TicketType'),
         write_only=True,
         required=False,
         allow_null=True
     )
     department = serializers.PrimaryKeyRelatedField(
-        queryset=TicketsMasterConfiguration.objects.filter(field_type='Department'), 
+        queryset=TicketsMasterConfiguration.objects.filter(field_type='Department'),
         write_only=True,
         required=False,
         allow_null=True
     )
     location = serializers.PrimaryKeyRelatedField(
-        queryset=TicketsMasterConfiguration.objects.filter(field_type='Location'), 
+        queryset=TicketsMasterConfiguration.objects.filter(field_type='Location'),
         write_only=True,
         required=False,
         allow_null=True
     )
     platform = serializers.PrimaryKeyRelatedField(
-        queryset=TicketsMasterConfiguration.objects.filter(field_type='Platform'), 
+        queryset=TicketsMasterConfiguration.objects.filter(field_type='Platform'),
         write_only=True,
         required=False,
         allow_null=True
     )
     priority = serializers.PrimaryKeyRelatedField(
-        queryset=TicketsMasterConfiguration.objects.filter(field_type='Priority'), 
+        queryset=TicketsMasterConfiguration.objects.filter(field_type='Priority'),
         write_only=True,
         required=False,
         allow_null=True
     )
-    
+   
     # NEW: Status as writeable PK field (for updates)
     status = serializers.PrimaryKeyRelatedField(
         queryset=TicketsMasterConfiguration.objects.filter(field_type='Status', is_active='Y'),
@@ -1160,7 +2286,7 @@ class CreateTicketSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True
     )
-    
+   
     # Category/Subcategory IDs (unchanged)
     category = serializers.PrimaryKeyRelatedField(
         queryset=TicketCategory.objects.all(),
@@ -1174,24 +2300,24 @@ class CreateTicketSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True
     )
-
+ 
     # Assignment fields - Handle multiples via lists of IDs or emails (unchanged)
     assigned_to_type = serializers.ListField(
-        child=serializers.ChoiceField(choices=[('user', 'User'), ('group', 'Group')]), 
-        write_only=True, 
+        child=serializers.ChoiceField(choices=[('user', 'User'), ('group', 'Group')]),
+        write_only=True,
         required=False
     )
     assignee = serializers.ListField(  # Multiple user IDs or emails
-        child=serializers.CharField(), 
-        write_only=True, 
+        child=serializers.CharField(),
+        write_only=True,
         required=False
     )
     assigned_group = serializers.ListField(  # Multiple group IDs
-        child=serializers.IntegerField(), 
-        write_only=True, 
+        child=serializers.IntegerField(),
+        write_only=True,
         required=False
     )
-
+ 
     # Read-only details (unchanged)
     type_detail = serializers.SerializerMethodField(read_only=True)
     department_detail = serializers.SerializerMethodField(read_only=True)
@@ -1204,10 +2330,10 @@ class CreateTicketSerializer(serializers.ModelSerializer):
     assignees_detail = serializers.SerializerMethodField(read_only=True)
     assigned_groups_detail = serializers.SerializerMethodField(read_only=True)
     status_detail = serializers.SerializerMethodField(read_only=True)
-    
+   
     # Documents field (unchanged)
     documents = serializers.SerializerMethodField(read_only=True)
-    
+   
     # Watchers field (unchanged)
     watchers = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
@@ -1215,18 +2341,19 @@ class CreateTicketSerializer(serializers.ModelSerializer):
         required=False,
         write_only=True
     )
-
+ 
     # Title and description - required for create, optional for update (unchanged)
     title = serializers.CharField(required=False, allow_blank=True)
     description = serializers.CharField(required=False, allow_blank=True)
-
+ 
     class Meta:
         model = CreateTicket
         fields = [
-            'id', 'ticket_no', 'title', 'description', 
-            'type', 'type_detail', 
+            'id', 'ticket_no', 'title', 'description',
+            'entity',
+            'type', 'type_detail',
             'department', 'department_detail',
-            'location', 'location_detail', 
+            'location', 'location_detail',
             'platform', 'platform_detail',
             'priority', 'priority_detail',
             'category', 'category_detail',
@@ -1238,82 +2365,82 @@ class CreateTicketSerializer(serializers.ModelSerializer):
             'documents', 'sla', 'created_date', 'updated_date', 'closed_on'
         ]
         read_only_fields = ['id', 'ticket_no', 'created_date', 'updated_date', 'closed_on', 'sla']  # Removed 'status'
-
+ 
     def __init__(self, *args, **kwargs):
         # Detect if this is an update (partial update)
         self.partial = kwargs.pop('partial', False)
         super().__init__(*args, **kwargs)
-        
+       
         # For create, make required fields required (unchanged)
         if not self.partial:
             self.fields['title'].required = True
             self.fields['description'].required = True
             self.fields['category'].required = True
             # NEW: For create, status is auto-set, so not required here
-
+ 
     # All get_ methods unchanged (omitted for brevity)
     def get_documents(self, obj):
-        """Get documents related to the ticket using correct related_name"""
+        """Get documents related to the ticket"""
         try:
-            documents = obj.documents.all()  # ← This is KEY: use related_name="documents"
+            documents = TicketDocument.objects.filter(ticket=obj)
             return [
                 {
                     'id': doc.id,
                     'file': doc.file.url if doc.file else None,
-                    'original_name': doc.original_name or doc.file.name.split('/')[-1] if doc.file else "Unknown",
+                    'original_name': doc.original_name,
                 }
                 for doc in documents
             ]
         except Exception as e:
             logger.error(f"Error fetching documents for ticket {obj.id}: {e}")
             return []
-
+ 
     def get_type_detail(self, obj):
         if obj.type:
             return {'id': obj.type.id, 'field_name': obj.type.field_name}
         return None
-
+ 
     def get_department_detail(self, obj):
         if obj.department:
             return {'id': obj.department.id, 'field_name': obj.department.field_name}
         return None
-
+ 
     def get_location_detail(self, obj):
         if obj.location:
             return {'id': obj.location.id, 'field_name': obj.location.field_name}
         return None
-
+ 
     def get_platform_detail(self, obj):
         if obj.platform:
             return {'id': obj.platform.id, 'field_name': obj.platform.field_name}
         return None
-
+ 
     def get_priority_detail(self, obj):
         if obj.priority:
             return {'id': obj.priority.id, 'field_name': obj.priority.field_name}
         return None
-
+ 
     def get_category_detail(self, obj):
         if obj.category:
             return {'id': obj.category.id, 'category_name': obj.category.category_name}
         return None
-
+ 
     def get_subcategory_detail(self, obj):
         if obj.subcategory:
             return {'id': obj.subcategory.id, 'subcategory_name': obj.subcategory.subcategory_name}
         return None
-
+ 
     def get_requested_detail(self, obj):
         if obj.requested:
             details = self._safe_get_user_details(obj.requested, include_id=True)
             return details
         return None
-
+ 
     def get_status_detail(self, obj):
         if obj.status:
             return {'id': obj.status.id, 'field_name': obj.status.field_name, 'field_values': obj.status.field_values}
         return None
-
+ 
     def get_assignees_detail(self, obj):
         """Get details for assignees from JSON field"""
         assignees = obj.assigned_users or []
@@ -1323,7 +2450,7 @@ class CreateTicketSerializer(serializers.ModelSerializer):
                 for assignee_email in assignees
             ]
         return []
-
+ 
     def get_assigned_groups_detail(self, obj):
         """Get details for assigned groups from JSON field - Enhanced with members list"""
         assigned_groups = obj.assigned_groups or []
@@ -1352,7 +2479,7 @@ class CreateTicketSerializer(serializers.ModelSerializer):
                     })
             return groups_detail
         return []
-
+ 
     # Helper methods unchanged (omitted for brevity)
     def _safe_get_user_details(self, user_or_email, include_id=False):
         """Inline alternative to get_user_details - safe user details without external import"""
@@ -1365,40 +2492,40 @@ class CreateTicketSerializer(serializers.ModelSerializer):
                 user = User.objects.get(email=email)
             except User.DoesNotExist:
                 return {'name': email, 'email': email}
-        
+       
         name = (getattr(user, 'name', None) or
-                getattr(user, 'firstname', '') + ' ' + getattr(user, 'last_name', '')).strip() or user.username or user.email
-        firstname = getattr(user, 'firstname', '') or ''
+                getattr(user, 'first_name', '') + ' ' + getattr(user, 'last_name', '')).strip() or user.username or user.email
+        firstname = getattr(user, 'first_name', '') or ''
         lastname = getattr(user, 'last_name', '') or ''
         details = {'name': name, 'email': email, 'firstname': firstname, 'lastname': lastname}
         if include_id:
             details['id'] = user.id
         return details
-
+ 
     def _get_user_id_by_email(self, email):
         try:
             user = User.objects.get(email=email)
             return user.id
         except User.DoesNotExist:
             return None
-
+ 
     def _get_user_name_by_email(self, email):
         return self._safe_get_user_details(email)['name']
-
+ 
     def _get_group_name_by_id(self, group_id):
         try:
             group = UsersGroup.objects.get(id=group_id)
             return group.name
         except UsersGroup.DoesNotExist:
             return f"Group {group_id}"
-
+ 
     def _get_group_members_count(self, group_id):
         try:
             group = UsersGroup.objects.get(id=group_id)
             return group.get_users().count()
         except UsersGroup.DoesNotExist:
             return 0
-
+ 
     def validate(self, data):
         """Validate required fields - lenient for partial updates"""
         if not self.partial:
@@ -1417,14 +2544,31 @@ class CreateTicketSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"description": "Description cannot be empty."})
             if 'category' in data and not data['category']:
                 raise serializers.ValidationError({"category": "Category cannot be empty."})
-        
+       
+        # NEW: Validate entity, category, subcategory consistency
+        entity = data.get('entity')
+        category = data.get('category')
+        subcategory = data.get('subcategory')
+ 
+        if entity and category:
+            if category.entity != entity:
+                raise serializers.ValidationError({
+                    'category': f"Selected category does not belong to entity '{entity.name}'."
+                })
+ 
+        if entity and subcategory:
+            if subcategory.entity != entity or subcategory.category != category:
+                raise serializers.ValidationError({
+                    'subcategory': f"Selected subcategory does not belong to entity '{entity.name}' or category '{category.category_name}'."
+                })
+       
         # NEW: Validate status if provided (mandatory single value from valid options)
         status = data.get('status')
         if status:
             if not isinstance(status, TicketsMasterConfiguration) or status.field_type != 'Status' or status.is_active != 'Y':
                 raise serializers.ValidationError({"status": "Invalid or inactive status provided."})
         # For create, status is auto-set in create(), so no further check here
-        
+       
         # Handle FormData lists (unchanged)
         assigned_to_type_list = data.get('assigned_to_type', [])
         if isinstance(assigned_to_type_list, list):
@@ -1432,7 +2576,7 @@ class CreateTicketSerializer(serializers.ModelSerializer):
             data['assigned_to_type'] = assigned_to_type
         else:
             assigned_to_type = []
-
+ 
         # Convert assignee IDs or emails to emails (unchanged)
         assignee_list = data.get('assignee', [])
         if isinstance(assignee_list, list):
@@ -1450,118 +2594,70 @@ class CreateTicketSerializer(serializers.ModelSerializer):
             data['assignee'] = emails
         else:
             data['assignee'] = []
-
+ 
         # Validate emails exist (only if provided) (unchanged)
         assignees = data['assignee']
         for email in assignees:
             if not User.objects.filter(email=email).exists():
                 raise serializers.ValidationError({"assignee": f"User with email {email} does not exist."})
-
+ 
         assigned_group_list = data.get('assigned_group', [])
         if isinstance(assigned_group_list, list):
             data['assigned_group'] = [int(g) for g in assigned_group_list if isinstance(g, (str, int))]
         else:
             data['assigned_group'] = []
-
+ 
         # Validate groups exist (only if provided) (unchanged)
         assigned_groups = data['assigned_group']
         for gid in assigned_groups:
             if not UsersGroup.objects.filter(id=gid).exists():
                 raise serializers.ValidationError({"assigned_group": f"Group {gid} does not exist."})
-        
+       
         has_user = 'user' in assigned_to_type
         has_group = 'group' in assigned_to_type
-        
+       
         if has_user and not assignees:
             raise serializers.ValidationError({"assignee": "At least one user email required if User is selected."})
         if has_group and not assigned_groups:
             raise serializers.ValidationError({"assigned_group": "At least one group ID required if Group is selected."})
-        
+       
         return data
+ 
     def create(self, validated_data):
-        """Create new ticket - auto set department & location from logged-in user"""
-        request = self.context.get("request")
-        user = request.user if request else None
-
+        """Create new ticket - set default status to 'New' and handle lists"""
         with transaction.atomic():
-            # Pop list fields
+            # Pop list fields to avoid passing to super().create
             assigned_to_type = validated_data.pop('assigned_to_type', [])
-            assignees = validated_data.pop('assignee', [])
+            assignees = validated_data.pop('assignee', [])  # list of emails
             assigned_groups = validated_data.pop('assigned_group', [])
             watchers = validated_data.pop('watchers', [])
-
-            # ✅ AUTO SET DEPARTMENT & LOCATION FROM USER
-            if user:
-                # Department
-                if not validated_data.get('department') and user.department_id:
-                    validated_data['department'] = user.department_id
-
-                # Location
-                if not validated_data.get('location') and user.locations:
-                    validated_data['location'] = user.locations
-
-            # ✅ Default Status = "New"
+           
+            # Set default status to 'New' if not provided
             if 'status' not in validated_data:
                 try:
-                    validated_data['status'] = TicketsMasterConfiguration.objects.get(
+                    new_status = TicketsMasterConfiguration.objects.get(
                         field_type='Status',
                         field_name='New',
                         is_active='Y'
                     )
+                    validated_data['status'] = new_status
                 except TicketsMasterConfiguration.DoesNotExist:
-                    raise serializers.ValidationError({
-                        "status": "Default 'New' status not found."
-                    })
-
-            # Create ticket
+                    raise serializers.ValidationError({"status": "Default 'New' status not found."})
+           
+            # Create instance with remaining data (no lists)
             instance = super().create(validated_data)
-
-            # Save assignments
-            instance.assigned_users = assignees
-            instance.assigned_groups = assigned_groups
+           
+            # Set JSON fields for multiples
+            instance.assigned_users = assignees  # store emails
+            instance.assigned_groups = assigned_groups  # store IDs
             instance.save()
-
-            # Add watchers
+           
+            # Add watchers if provided
             for watcher in watchers:
                 instance.watchers.add(watcher)
-
+           
             return instance
-
-    # def create(self, validated_data):
-    #     """Create new ticket - set default status to 'New' and handle lists"""
-    #     with transaction.atomic():
-    #         # Pop list fields to avoid passing to super().create
-    #         assigned_to_type = validated_data.pop('assigned_to_type', [])
-    #         assignees = validated_data.pop('assignee', [])  # list of emails
-    #         assigned_groups = validated_data.pop('assigned_group', [])
-    #         watchers = validated_data.pop('watchers', [])
-            
-    #         # Set default status to 'New' if not provided
-    #         if 'status' not in validated_data:
-    #             try:
-    #                 new_status = TicketsMasterConfiguration.objects.get(
-    #                     field_type='Status', 
-    #                     field_name='New', 
-    #                     is_active='Y'
-    #                 )
-    #                 validated_data['status'] = new_status
-    #             except TicketsMasterConfiguration.DoesNotExist:
-    #                 raise serializers.ValidationError({"status": "Default 'New' status not found."})
-            
-    #         # Create instance with remaining data (no lists)
-    #         instance = super().create(validated_data)
-            
-    #         # Set JSON fields for multiples
-    #         instance.assigned_users = assignees  # store emails
-    #         instance.assigned_groups = assigned_groups  # store IDs
-    #         instance.save()
-            
-    #         # Add watchers if provided
-    #         for watcher in watchers:
-    #             instance.watchers.add(watcher)
-            
-    #         return instance
-
+ 
     def update(self, instance, validated_data):
         """Update ticket - partial updates supported"""
         with transaction.atomic():
@@ -1570,11 +2666,11 @@ class CreateTicketSerializer(serializers.ModelSerializer):
             assignees = validated_data.pop('assignee', None)
             assigned_groups = validated_data.pop('assigned_group', None)
             watchers = validated_data.pop('watchers', None)
-            
+           
             # Update basic fields (only those provided) - now includes status
             for attr, value in validated_data.items():
                 setattr(instance, attr, value)
-            
+           
             # Handle assignment changes (multiple) - FIXED: Additive unless explicitly empty
             if assigned_to_type is not None:
                 # Only clear if explicitly empty; otherwise append
@@ -1610,46 +2706,536 @@ class CreateTicketSerializer(serializers.ModelSerializer):
                                         instance.watchers.add(member)
                             except UsersGroup.DoesNotExist:
                                 pass
-            
+           
             # Update watchers if provided (set overrides, but could be made additive)
             if watchers is not None:
                 instance.watchers.set(watchers)
-            
+           
             instance.save()
             return instance
+# class CreateTicketSerializer(serializers.ModelSerializer):
+#     # Write-only PKs (unchanged)
+#     # entity = serializers.PrimaryKeyRelatedField(
+#     #     queryset=Entity.objects.all(),
+#     #     write_only=True,
+#     #     required=False,
+#     #     allow_null=True
+#     # )
+#     entity_id = serializers.PrimaryKeyRelatedField(
+#         source='entity',
+#         queryset=Entity.objects.all(),
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     type = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='TicketType'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     department = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Department'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     location = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Location'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     platform = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Platform'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+#     priority = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Priority'), 
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
+    
+#     # NEW: Status as writeable PK field (for updates)
+#     status = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketsMasterConfiguration.objects.filter(field_type='Status', is_active='Y'),
+#         write_only=False,  # Allow read/write
+#         required=False,
+#         allow_null=True
+#     )
+    
+#     # Category/Subcategory IDs (unchanged)
+#     category = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketCategory.objects.all(),
+#         write_only=True,
+#         required=False,  # Make optional for updates
+#         allow_null=True
+#     )
+#     subcategory = serializers.PrimaryKeyRelatedField(
+#         queryset=TicketSubcategory.objects.all(),
+#         write_only=True,
+#         required=False,
+#         allow_null=True
+#     )
 
-class TicketSLASerializer(serializers.ModelSerializer):
-    class Meta:
-        model = TicketSLA
-        fields = [
-            'id',
-            'entity',
-            'category',
-            'subcategory',
-            'Approver_level1_user',
-            'Approver_level1_time',
-            'Approver_level2_user',
-            'Approver_level2_time',
-            'Approver_level3_user',
-            'Approver_level3_time',
-            'Approver_level4_user',
-            'Approver_level4_time',
-            'Approver_level5_user',
-            'Approver_level5_time',
-            'Assign_to',
-            'Execution_by',
-            'is_active',
-            'created_date',
-            'updated_date',
-            'created_by',
-            'updated_by',
-        ]
-        read_only_fields = ['id', 'created_date', 'updated_date']
+#     # Assignment fields - Handle multiples via lists of IDs or emails (unchanged)
+#     assigned_to_type = serializers.ListField(
+#         child=serializers.ChoiceField(choices=[('user', 'User'), ('group', 'Group')]), 
+#         write_only=True, 
+#         required=False
+#     )
+#     assignee = serializers.ListField(  # Multiple user IDs or emails
+#         child=serializers.CharField(), 
+#         write_only=True, 
+#         required=False
+#     )
+#     assigned_group = serializers.ListField(  # Multiple group IDs
+#         child=serializers.IntegerField(), 
+#         write_only=True, 
+#         required=False
+#     )
 
-    def validate(self, data):
-        if data.get('is_active') not in ['Y', 'N']:
-            raise serializers.ValidationError({"is_active": "Must be 'Y' or 'N'"})
-        return data
+#     # Read-only details (unchanged)
+#     type_detail = serializers.SerializerMethodField(read_only=True)
+#     department_detail = serializers.SerializerMethodField(read_only=True)
+#     location_detail = serializers.SerializerMethodField(read_only=True)
+#     platform_detail = serializers.SerializerMethodField(read_only=True)
+#     priority_detail = serializers.SerializerMethodField(read_only=True)
+#     category_detail = serializers.SerializerMethodField(read_only=True)
+#     subcategory_detail = serializers.SerializerMethodField(read_only=True)
+#     requested_detail = serializers.SerializerMethodField(read_only=True)
+#     assignees_detail = serializers.SerializerMethodField(read_only=True)
+#     assigned_groups_detail = serializers.SerializerMethodField(read_only=True)
+#     status_detail = serializers.SerializerMethodField(read_only=True)
+    
+#     # Documents field (unchanged)
+#     documents = serializers.SerializerMethodField(read_only=True)
+    
+#     # Watchers field (unchanged)
+#     watchers = serializers.PrimaryKeyRelatedField(
+#         queryset=User.objects.all(),
+#         many=True,
+#         required=False,
+#         write_only=True
+#     )
+
+#     # Title and description - required for create, optional for update (unchanged)
+#     title = serializers.CharField(required=False, allow_blank=True)
+#     description = serializers.CharField(required=False, allow_blank=True)
+
+#     class Meta:
+#         model = CreateTicket
+#         fields = [
+#             'id', 'ticket_no', 'title', 'description', 
+#             # 'entity',
+#             'entity_id',
+#             'type', 'type_detail', 
+#             'department', 'department_detail',
+#             'location', 'location_detail', 
+#             'platform', 'platform_detail',
+#             'priority', 'priority_detail',
+#             'category', 'category_detail',
+#             'subcategory', 'subcategory_detail',
+#             'status', 'status_detail',  # Now fully included
+#             'assigned_to_type', 'assignee', 'assignees_detail',
+#             'assigned_group', 'assigned_groups_detail',
+#             'requested', 'requested_detail', 'watchers',
+#             'documents', 'sla', 'created_date', 'updated_date', 'closed_on'
+#         ]
+#         read_only_fields = ['id', 'ticket_no', 'created_date', 'updated_date', 'closed_on', 'sla']  # Removed 'status'
+
+#     def __init__(self, *args, **kwargs):
+#         self.partial = kwargs.pop('partial', False)
+#         super().__init__(*args, **kwargs)
+        
+#         if not self.partial:
+#             self.fields['title'].required = True
+#             self.fields['description'].required = True
+#             self.fields['category'].required = True
+#             self.fields['entity_id'].required = True
+#     # def __init__(self, *args, **kwargs):
+#     #     # Detect if this is an update (partial update)
+#     #     self.partial = kwargs.pop('partial', False)
+#     #     super().__init__(*args, **kwargs)
+        
+#     #     # For create, make required fields required (unchanged)
+#     #     if not self.partial:
+#     #         self.fields['title'].required = True
+#     #         self.fields['description'].required = True
+#     #         self.fields['category'].required = True
+#             # NEW: For create, status is auto-set, so not required here
+
+#     # All get_ methods unchanged (omitted for brevity)
+#     def get_documents(self, obj):
+#         """Get documents related to the ticket"""
+#         try:
+#             documents = TicketDocument.objects.filter(ticket=obj)
+#             return [
+#                 {
+#                     'id': doc.id,
+#                     'file': doc.file.url if doc.file else None,
+#                     'original_name': doc.original_name,
+#                 }
+#                 for doc in documents
+#             ]
+#         except Exception as e:
+#             logger.error(f"Error fetching documents for ticket {obj.id}: {e}")
+#             return []
+
+#     def get_type_detail(self, obj):
+#         if obj.type:
+#             return {'id': obj.type.id, 'field_name': obj.type.field_name}
+#         return None
+
+#     def get_department_detail(self, obj):
+#         if obj.department:
+#             return {'id': obj.department.id, 'field_name': obj.department.field_name}
+#         return None
+
+#     def get_location_detail(self, obj):
+#         if obj.location:
+#             return {'id': obj.location.id, 'field_name': obj.location.field_name}
+#         return None
+
+#     def get_platform_detail(self, obj):
+#         if obj.platform:
+#             return {'id': obj.platform.id, 'field_name': obj.platform.field_name}
+#         return None
+
+#     def get_priority_detail(self, obj):
+#         if obj.priority:
+#             return {'id': obj.priority.id, 'field_name': obj.priority.field_name}
+#         return None
+
+#     def get_category_detail(self, obj):
+#         if obj.category:
+#             return {'id': obj.category.id, 'category_name': obj.category.category_name}
+#         return None
+
+#     def get_subcategory_detail(self, obj):
+#         if obj.subcategory:
+#             return {'id': obj.subcategory.id, 'subcategory_name': obj.subcategory.subcategory_name}
+#         return None
+
+#     def get_requested_detail(self, obj):
+#         if obj.requested:
+#             details = self._safe_get_user_details(obj.requested, include_id=True)
+#             return details
+#         return None
+
+#     def get_status_detail(self, obj):
+#         if obj.status:
+#             return {'id': obj.status.id, 'field_name': obj.status.field_name, 'field_values': obj.status.field_values}
+#         return None
+
+#     def get_assignees_detail(self, obj):
+#         """Get details for assignees from JSON field"""
+#         assignees = obj.assigned_users or []
+#         if assignees:
+#             return [
+#                 self._safe_get_user_details(assignee_email, include_id=True)
+#                 for assignee_email in assignees
+#             ]
+#         return []
+
+#     def get_assigned_groups_detail(self, obj):
+#         """Get details for assigned groups from JSON field - Enhanced with members list"""
+#         assigned_groups = obj.assigned_groups or []
+#         if assigned_groups:
+#             groups_detail = []
+#             for group_id in assigned_groups:
+#                 try:
+#                     group = UsersGroup.objects.get(id=group_id)
+#                     members = group.get_users()  # Assuming get_users() returns a queryset of User objects
+#                     groups_detail.append({
+#                         "id": group_id,
+#                         "name": group.name,
+#                         "members_count": members.count(),
+#                         "members": [
+#                             self._safe_get_user_details(member, include_id=True)
+#                             for member in members
+#                         ]
+#                     })
+#                 except UsersGroup.DoesNotExist:
+#                     logger.warning(f"Group with ID {group_id} not found for ticket {obj.id}")
+#                     groups_detail.append({
+#                         "id": group_id,
+#                         "name": f"Group {group_id} (Not Found)",
+#                         "members_count": 0,
+#                         "members": []
+#                     })
+#             return groups_detail
+#         return []
+
+#     # Helper methods unchanged (omitted for brevity)
+#     def _safe_get_user_details(self, user_or_email, include_id=False):
+#         """Inline alternative to get_user_details - safe user details without external import"""
+#         if isinstance(user_or_email, User):
+#             user = user_or_email
+#             email = user.email
+#         else:
+#             email = user_or_email
+#             try:
+#                 user = User.objects.get(email=email)
+#             except User.DoesNotExist:
+#                 return {'name': email, 'email': email}
+        
+#         name = (getattr(user, 'name', None) or
+#                 getattr(user, 'first_name', '') + ' ' + getattr(user, 'last_name', '')).strip() or user.username or user.email
+#         firstname = getattr(user, 'first_name', '') or ''
+#         lastname = getattr(user, 'last_name', '') or ''
+#         details = {'name': name, 'email': email, 'firstname': firstname, 'lastname': lastname}
+#         if include_id:
+#             details['id'] = user.id
+#         return details
+
+#     def _get_user_id_by_email(self, email):
+#         try:
+#             user = User.objects.get(email=email)
+#             return user.id
+#         except User.DoesNotExist:
+#             return None
+
+#     def _get_user_name_by_email(self, email):
+#         return self._safe_get_user_details(email)['name']
+
+#     def _get_group_name_by_id(self, group_id):
+#         try:
+#             group = UsersGroup.objects.get(id=group_id)
+#             return group.name
+#         except UsersGroup.DoesNotExist:
+#             return f"Group {group_id}"
+
+#     def _get_group_members_count(self, group_id):
+#         try:
+#             group = UsersGroup.objects.get(id=group_id)
+#             return group.get_users().count()
+#         except UsersGroup.DoesNotExist:
+#             return 0
+
+#     def validate(self, data):
+#         """Validate required fields - lenient for partial updates"""
+#         if not self.partial:
+#             # For create: enforce required fields
+#             if 'title' not in data or not data['title'].strip():
+#                 raise serializers.ValidationError({"title": "This field is required."})
+#             if 'description' not in data or not data['description'].strip():
+#                 raise serializers.ValidationError({"description": "This field is required."})
+#             if 'category' not in data or not data['category']:
+#                 raise serializers.ValidationError({"category": "This field is required."})
+#         else:
+#             # For update: optional, but validate if provided
+#             if 'title' in data and not data['title'].strip():
+#                 raise serializers.ValidationError({"title": "Title cannot be empty."})
+#             if 'description' in data and not data['description'].strip():
+#                 raise serializers.ValidationError({"description": "Description cannot be empty."})
+#             if 'category' in data and not data['category']:
+#                 raise serializers.ValidationError({"category": "Category cannot be empty."})
+        
+#         # NEW: Validate entity, category, subcategory consistency
+#         entity = data.get('entity')
+#         category = data.get('category')
+#         subcategory = data.get('subcategory')
+
+#         if entity and category:
+#             if category.entity != entity:
+#                 raise serializers.ValidationError({
+#                     'category': f"Selected category does not belong to entity '{entity.name}'."
+#                 })
+
+#         if entity and subcategory:
+#             if subcategory.entity != entity or subcategory.category != category:
+#                 raise serializers.ValidationError({
+#                     'subcategory': f"Selected subcategory does not belong to entity '{entity.name}' or category '{category.category_name}'."
+#                 })
+        
+#         # NEW: Validate status if provided (mandatory single value from valid options)
+#         status = data.get('status')
+#         if status:
+#             if not isinstance(status, TicketsMasterConfiguration) or status.field_type != 'Status' or status.is_active != 'Y':
+#                 raise serializers.ValidationError({"status": "Invalid or inactive status provided."})
+#         # For create, status is auto-set in create(), so no further check here
+        
+#         # Handle FormData lists (unchanged)
+#         assigned_to_type_list = data.get('assigned_to_type', [])
+#         if isinstance(assigned_to_type_list, list):
+#             assigned_to_type = [t for t in assigned_to_type_list if t in ['user', 'group']]
+#             data['assigned_to_type'] = assigned_to_type
+#         else:
+#             assigned_to_type = []
+
+#         # Convert assignee IDs or emails to emails (unchanged)
+#         assignee_list = data.get('assignee', [])
+#         if isinstance(assignee_list, list):
+#             emails = []
+#             for item in assignee_list:
+#                 if isinstance(item, str) and '@' in item:
+#                     emails.append(item)
+#                 else:
+#                     try:
+#                         user_id = int(str(item))
+#                         user = User.objects.get(id=user_id)
+#                         emails.append(user.email)
+#                     except (ValueError, User.DoesNotExist):
+#                         pass
+#             data['assignee'] = emails
+#         else:
+#             data['assignee'] = []
+
+#         # Validate emails exist (only if provided) (unchanged)
+#         assignees = data['assignee']
+#         for email in assignees:
+#             if not User.objects.filter(email=email).exists():
+#                 raise serializers.ValidationError({"assignee": f"User with email {email} does not exist."})
+
+#         assigned_group_list = data.get('assigned_group', [])
+#         if isinstance(assigned_group_list, list):
+#             data['assigned_group'] = [int(g) for g in assigned_group_list if isinstance(g, (str, int))]
+#         else:
+#             data['assigned_group'] = []
+
+#         # Validate groups exist (only if provided) (unchanged)
+#         assigned_groups = data['assigned_group']
+#         for gid in assigned_groups:
+#             if not UsersGroup.objects.filter(id=gid).exists():
+#                 raise serializers.ValidationError({"assigned_group": f"Group {gid} does not exist."})
+        
+#         has_user = 'user' in assigned_to_type
+#         has_group = 'group' in assigned_to_type
+        
+#         if has_user and not assignees:
+#             raise serializers.ValidationError({"assignee": "At least one user email required if User is selected."})
+#         if has_group and not assigned_groups:
+#             raise serializers.ValidationError({"assigned_group": "At least one group ID required if Group is selected."})
+        
+#         return data
+
+#     def create(self, validated_data):
+#         """Create new ticket - set default status to 'New' and handle lists"""
+#         with transaction.atomic():
+#             # Pop list fields to avoid passing to super().create
+#             assigned_to_type = validated_data.pop('assigned_to_type', [])
+#             assignees = validated_data.pop('assignee', [])  # list of emails
+#             assigned_groups = validated_data.pop('assigned_group', [])
+#             watchers = validated_data.pop('watchers', [])
+            
+#             # Set default status to 'New' if not provided
+#             if 'status' not in validated_data:
+#                 try:
+#                     new_status = TicketsMasterConfiguration.objects.get(
+#                         field_type='Status', 
+#                         field_name='New', 
+#                         is_active='Y'
+#                     )
+#                     validated_data['status'] = new_status
+#                 except TicketsMasterConfiguration.DoesNotExist:
+#                     raise serializers.ValidationError({"status": "Default 'New' status not found."})
+            
+#             # Create instance with remaining data (no lists)
+#             instance = super().create(validated_data)
+            
+#             # Set JSON fields for multiples
+#             instance.assigned_users = assignees  # store emails
+#             instance.assigned_groups = assigned_groups  # store IDs
+#             instance.save()
+            
+#             # Add watchers if provided
+#             for watcher in watchers:
+#                 instance.watchers.add(watcher)
+            
+#             return instance
+
+#     def update(self, instance, validated_data):
+#         """Update ticket - partial updates supported"""
+#         with transaction.atomic():
+#             # Pop list fields if present
+#             assigned_to_type = validated_data.pop('assigned_to_type', None)
+#             assignees = validated_data.pop('assignee', None)
+#             assigned_groups = validated_data.pop('assigned_group', None)
+#             watchers = validated_data.pop('watchers', None)
+            
+#             # Update basic fields (only those provided) - now includes status
+#             for attr, value in validated_data.items():
+#                 setattr(instance, attr)
+            
+#             # Handle assignment changes (multiple) - FIXED: Additive unless explicitly empty
+#             if assigned_to_type is not None:
+#                 # Only clear if explicitly empty; otherwise append
+#                 if not assigned_to_type:
+#                     instance.assigned_users = []
+#                     instance.assigned_groups = []
+#                 else:
+#                     if 'user' in assigned_to_type:
+#                         if assignees:  # Append if provided
+#                             if instance.assigned_users is None:
+#                                 instance.assigned_users = []
+#                             instance.assigned_users.extend([e for e in assignees if e not in instance.assigned_users])
+#                         # Add new to watchers
+#                         for email in assignees or []:
+#                             try:
+#                                 user = User.objects.get(email=email)
+#                                 if user not in instance.watchers.all():
+#                                     instance.watchers.add(user)
+#                             except User.DoesNotExist:
+#                                 pass
+#                     if 'group' in assigned_to_type:
+#                         if assigned_groups:  # Append if provided
+#                             if instance.assigned_groups is None:
+#                                 instance.assigned_groups = []
+#                             instance.assigned_groups.extend([g for g in assigned_groups if g not in instance.assigned_groups])
+#                         # Add new group members to watchers
+#                         for group_id in assigned_groups or []:
+#                             try:
+#                                 group = UsersGroup.objects.get(id=group_id)
+#                                 group_users = group.get_users()
+#                                 for member in group_users:
+#                                     if member not in instance.watchers.all():
+#                                         instance.watchers.add(member)
+#                             except UsersGroup.DoesNotExist:
+#                                 pass
+            
+#             # Update watchers if provided (set overrides, but could be made additive)
+#             if watchers is not None:
+#                 instance.watchers.set(watchers)
+            
+#             instance.save()
+#             return instance
+
+# class TicketSLASerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = TicketSLA
+#         fields = [
+#             'id',
+#             'entity',
+#             'category',
+#             'subcategory',
+#             'Approver_level1_user',
+#             'Approver_level1_time',
+#             'Approver_level2_user',
+#             'Approver_level2_time',
+#             'Approver_level3_user',
+#             'Approver_level3_time',
+#             'Approver_level4_user',
+#             'Approver_level4_time',
+#             'Approver_level5_user',
+#             'Approver_level5_time',
+#             'Assign_to',
+#             'Execution_by',
+#             'is_active',
+#             'created_date',
+#             'updated_date',
+#             'created_by',
+#             'updated_by',
+#         ]
+#         read_only_fields = ['id', 'created_date', 'updated_date']
+
+#     def validate(self, data):
+#         if data.get('is_active') not in ['Y', 'N']:
+#             raise serializers.ValidationError({"is_active": "Must be 'Y' or 'N'"})
+#         return data
     
 class TicketEmailTemplateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -1846,21 +3432,139 @@ class UserRoleMappingSerializer(serializers.ModelSerializer):
 #     def update(self, instance, validated_data):
 #         # Handle update logic if needed
 #         return super().update(instance, validated_data)
+# class MessageSerializer(serializers.ModelSerializer):
+#     sender = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+#     receiver = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+#     ticket_no = serializers.PrimaryKeyRelatedField(queryset=CreateTicket.objects.all())
+#     sender_name = serializers.ReadOnlyField(source='sender.username')
+#     receiver_name = serializers.ReadOnlyField(source='receiver.username')
+ 
+#     class Meta:
+#         model = Message
+#         fields = [
+#             'id', 'sender', 'receiver',  
+#             'sender_name', 'receiver_name',
+#             'ticket_no', 'message', 'createdon'
+#         ]
+#         read_only_fields = ['createdon']
+
+# class MessageSerializer(serializers.ModelSerializer):
+#     sender = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+#     receiver = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
+
+#     # ✅ USE ticket_no INSTEAD OF ID
+#     ticket_no = serializers.SlugRelatedField(
+#         queryset=CreateTicket.objects.all(),
+#         slug_field='ticket_no'
+#     )
+
+#     sender_name = serializers.ReadOnlyField(source='sender.username')
+#     receiver_name = serializers.ReadOnlyField(source='receiver.username')
+
+#     class Meta:
+#         model = Message
+#         fields = [
+#             'id', 'sender', 'receiver',
+#             'sender_name', 'receiver_name',
+#             'ticket_no', 'message', 'createdon'
+#         ]
+#         read_only_fields = ['createdon']
+
 class MessageSerializer(serializers.ModelSerializer):
     sender = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
     receiver = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
-    ticket_no = serializers.PrimaryKeyRelatedField(queryset=CreateTicket.objects.all())
+    ticket_no = serializers.SlugRelatedField(
+        queryset=CreateTicket.objects.all(),
+        slug_field='ticket_no'
+    )
     sender_name = serializers.ReadOnlyField(source='sender.username')
     receiver_name = serializers.ReadOnlyField(source='receiver.username')
+    protected = serializers.BooleanField(default=False)
+    encrypted_message = serializers.SerializerMethodField()  # Raw encrypted (if protected)
+    decrypted_message = serializers.SerializerMethodField()  # Always decrypted (no auth restriction for this field)
  
     class Meta:
         model = Message
         fields = [
-            'id', 'sender', 'receiver',  
+            'id', 'sender', 'receiver',
             'sender_name', 'receiver_name',
-            'ticket_no', 'message', 'createdon'
+            'ticket_no', 'message', 'protected', 'encrypted_message', 'decrypted_message', 'createdon'
         ]
         read_only_fields = ['createdon']
+ 
+    def get_encrypted_message(self, instance):
+        # Always return the raw encrypted message (if protected); empty otherwise
+        if instance.protected and instance.message.startswith('ENCRYPTED:'):
+            return instance.message  # Full "ENCRYPTED:<token>"
+        return None
+ 
+    def get_decrypted_message(self, instance):
+        # Always attempt decryption if protected (no viewer auth check; for full visibility/debug)
+        if not instance.protected:
+            return None
+        message = instance.message
+        if not message.startswith('ENCRYPTED:'):
+            return None
+        try:
+            receiver_id = str(instance.receiver.id)
+            key_material = (SECRET_KEY + receiver_id.encode()).ljust(32, b'0')[:32]
+            key = base64.urlsafe_b64encode(key_material)
+            fernet = Fernet(key)
+            decrypted = fernet.decrypt(message[10:].encode('utf-8')).decode('utf-8')
+            return decrypted
+        except Exception as e:
+            return f"Decryption failed: {str(e)}"
+ 
+    def validate(self, data):
+        # Ensure ticket_no is provided and valid
+        if not data.get('ticket_no'):
+            raise serializers.ValidationError({"ticket_no": "Ticket is required."})
+        # Ensure receiver is valid
+        if not data.get('receiver'):
+            raise serializers.ValidationError({"receiver": "Receiver is required."})
+        return data
+ 
+    def create(self, validated_data):
+        # If protected, encrypt the message before saving
+        message_text = validated_data['message']
+        protected = validated_data.get('protected', False)
+        if protected:
+            # Derive key from receiver ID + secret (simple symmetric; in prod, use asymmetric for true privacy)
+            receiver_id = str(validated_data['receiver'].id)
+            key_material = (SECRET_KEY + receiver_id.encode()).ljust(32, b'0')[:32]  # Pad/truncate to 32 bytes
+            key = base64.urlsafe_b64encode(key_material)
+            fernet = Fernet(key)
+            encrypted_message = fernet.encrypt(message_text.encode('utf-8')).decode('utf-8')
+            validated_data['message'] = f"ENCRYPTED:{encrypted_message}"  # Prefix to indicate encrypted
+        instance = super().create(validated_data)
+        return instance
+ 
+    def to_representation(self, instance):
+        # On read, set message: Decrypted (if authorized) or masked (privacy for main 'message' field)
+        data = super().to_representation(instance)
+        message = instance.message
+        protected = instance.protected
+        request = self.context.get('request')
+        if protected and request and request.user.id == instance.receiver.id:
+            # Decrypt for authorized receiver
+            if message.startswith('ENCRYPTED:'):
+                try:
+                    receiver_id = str(instance.receiver.id)
+                    key_material = (SECRET_KEY + receiver_id.encode()).ljust(32, b'0')[:32]
+                    key = base64.urlsafe_b64encode(key_material)
+                    fernet = Fernet(key)
+                    decrypted = fernet.decrypt(message[10:].encode('utf-8')).decode('utf-8')  # Remove prefix
+                    data['message'] = decrypted
+                except Exception:
+                    data['message'] = "Decryption failed (invalid key or corrupted)."
+            data['protected'] = False  # Hide protected flag after decryption
+        elif protected and message.startswith('ENCRYPTED:'):
+            # Mask for unauthorized (admin, etc.)
+            data['message'] = "*** PROTECTED MESSAGE - VISIBLE ONLY TO RECEIVER ***"
+        # Always add encrypted/decrypted fields (decrypted always succeeds for visibility)
+        data['encrypted_message'] = self.get_encrypted_message(instance)
+        data['decrypted_message'] = self.get_decrypted_message(instance)
+        return data
  
 class PlatformSerializer(serializers.ModelSerializer):
     entity_ids = serializers.ListField(

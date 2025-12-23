@@ -1067,81 +1067,411 @@ class TicketEmailTemplateDetailView(APIView):
         return Response({"detail": "Template deactivated"}, status=status.HTTP_204_NO_CONTENT)
 
 import json
+# class TicketCategoryListCreateView(APIView):
+#     permission_classes = []
+#     def get(self, request, *args, **kwargs):
+#         queryset = TicketCategory.objects.all()
+#         serializer = TicketCategorySerializer(queryset, many=True)
+#         return Response(serializer.data)
+
+#     def post(self, request, *args, **kwargs):
+#         from Ticket.models import TicketsMasterConfiguration, TicketCategory, TicketSubcategory, TicketSLA
+#         data = request.data
+#         created_by = request.user.firstname if request.user.is_authenticated else "system"
+#         updated_by = request.user.firstname if request.user.is_authenticated else "system"
+
+
+#         # Validate Entity
+#         try:
+#             entity = Entity.objects.filter(id=int(data.get("entity_id"))).first()
+#         except (Entity.DoesNotExist, TypeError, ValueError):
+#             return Response({"error": "Invalid entity_id"}, status=status.HTTP_400_BAD_REQUEST)
+#         print("entity :",entity)
+#         try:
+#             department = TicketsMasterConfiguration.objects.filter(id=int(data.get("department_id")), is_active="Y").first()
+#         except Exception as e:
+#             print("e :",e)
+#             return Response({"error": "Invalid department_id"}, status=status.HTTP_400_BAD_REQUEST)
+#         if entity.id not in department.entity_ids:
+#             # ID not allowed
+#             return Response({"error": "Entity not allowed in department"}, status=403)
+#         # Handle Category
+#         category_id = data.get("category_id")
+#         category_name = data.get("category_name")
+
+#         if category_id:
+#             try:
+#                 category = TicketCategory.objects.get(id=int(category_id))
+#             except TicketCategory.DoesNotExist:
+#                 return Response({"error": "Invalid category_id"}, status=status.HTTP_400_BAD_REQUEST)
+#         elif category_name:
+#             category, created = TicketCategory.objects.get_or_create(
+#                 category_name=category_name,
+#                 entity=entity,
+#                 department=department,
+#                 defaults={
+#                     "category_description": category_name,
+#                     "is_active": "Y",
+#                     "created_date": timezone.now(),
+#                     "updated_date": timezone.now(),
+#                 }
+#             )
+#         else:
+#             return Response({"error": "category_id or category_name required"}, status=status.HTTP_400_BAD_REQUEST)
+#         # Handle Subcategory
+#         subcategory_id = data.get("subcategory_id")
+#         subcategory_name = data.get("subcategory_name")
+#         subcategory = None
+
+#         if subcategory_id:
+#             try:
+#                 subcategory = TicketSubcategory.objects.get(id=int(subcategory_id))
+#             except TicketSubcategory.DoesNotExist:
+#                 return Response({"error": "Invalid subcategory_id"}, status=status.HTTP_400_BAD_REQUEST)
+#         elif subcategory_name:
+#             subcategory, created = TicketSubcategory.objects.get_or_create(
+#                 subcategory_name=subcategory_name,
+#                 category=category,
+#                 entity_id=entity.id,
+#                 defaults={
+#                     "subcategory_description": subcategory_name,
+#                     "is_active": "Y",
+#                     "created_date": timezone.now(),
+#                     "updated_date": timezone.now(),
+#                 }
+#             )
+
+  
+#         sla_data = {
+#             "Approver_level1_user_id": data.get("level1"),
+#             "Approver_level1_time": data.get("sla1"),
+#             "Approver_level2_user_id": data.get("level2"),
+#             "Approver_level2_time": data.get("sla2"),
+#             "Approver_level3_user_id": data.get("level3"),
+#             "Approver_level3_time": data.get("sla3"),
+#             "Approver_level4_user_id": data.get("level4"),
+#             "Approver_level4_time": data.get("sla4"),
+#             "Approver_level5_user_id": data.get("level5"),
+#             "Approver_level5_time": data.get("sla5"),
+#             "Assign_to": data.get("assign_technician"),
+#             # "Assign_to_id": data.get("assignTechnician"),
+#             "is_active": "Y",
+#             "updated_date": timezone.now(),
+#             "updated_by":updated_by,
+#         }
+
+#         ticket_sla, created = TicketSLA.objects.update_or_create(
+#             entity=entity,
+#             category=category,
+#             subcategory=subcategory,
+#             defaults=sla_data
+#         )
+
+#         if created:
+#             ticket_sla.created_date = timezone.now()
+#             created
+#             ticket_sla.save()
+
+
+
+#         return Response({
+#             "success": True,
+#             "message": "Category, Subcategory, and SLA created successfully",
+#             "category_id": category.id,
+#             "subcategory_id": subcategory.id if subcategory else None,
+#             "department_id": department.id
+#         }, status=status.HTTP_201_CREATED)
+    
+
+# class TicketCategoryRetrieveUpdateView(APIView):
+#     # permission_classes = [IsAuthenticated]  # Requires authentication for all operations
+#     permission_classes = [AllowAny]
+#     def get_object(self, pk):
+#         try:
+#             return TicketCategory.objects.get(pk=pk)
+#         except TicketCategory.DoesNotExist:
+#             return None
+
+#     def get(self, request, pk, *args, **kwargs):
+#         # GET single ticket category
+#         instance = self.get_object(pk)
+#         if not instance:
+#             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+#         serializer = TicketCategorySerializer(instance)
+#         return Response(serializer.data)
+    
+#     def put(self, request, pk, *args, **kwargs):
+#         data = request.data
+#         updated_by = "system"
+
+#         # Get category
+#         try:
+#             category = TicketCategory.objects.get(pk=pk)
+#         except TicketCategory.DoesNotExist:
+#             return Response({"error": "Category not found"}, status=404)
+
+#         # Entity
+#         try:
+#             entity_id = int(data.get("entity_id") or category.entity_id)
+#             entity = Entity.objects.get(id=entity_id)
+#         except (Entity.DoesNotExist, ValueError):
+#             return Response({"error": "Invalid entity_id"}, status=400)
+
+#         # Department only
+#         try:
+#             dept_id = int(data.get("department_id") or category.department_id)
+#             department = TicketsMasterConfiguration.objects.get(
+#                 id=dept_id,
+#                 is_active="Y",
+#                 entity_ids__contains=[entity_id]
+#             )
+#         except TicketsMasterConfiguration.DoesNotExist:
+#             return Response({"error": "Invalid department"}, status=400)
+
+#         # UPDATE CATEGORY — NO LOCATION AT ALL
+#         category.entity = entity
+#         category.department = department
+#         category.is_active = data.get("is_active", "Y")
+#         category.updated_date = timezone.now()
+#         category.updated_by = updated_by
+#         category.save()
+
+#         # Subcategory
+#         subcategory = None
+#         if data.get("subcategory_id"):
+#             try:
+#                 subcategory = TicketSubcategory.objects.get(id=int(data["subcategory_id"]))
+#             except TicketSubcategory.DoesNotExist:
+#                 return Response({"error": "Invalid subcategory_id"}, status=400)
+
+#         # UPDATE SLA
+#         TicketSLA.objects.update_or_create(
+#             entity=entity,
+#             category=category,
+#             subcategory=subcategory,
+#             defaults={
+#                 "Approver_level1_user_id": data.get("level1"),
+#                 "Approver_level1_time": data.get("sla1"),
+#                 "Approver_level2_user_id": data.get("level2"),
+#                 "Approver_level2_time": data.get("sla2"),
+#                 "Approver_level3_user_id": data.get("level3"),
+#                 "Approver_level3_time": data.get("sla3"),
+#                 "Approver_level4_user_id": data.get("level4"),
+#                 "Approver_level4_time": data.get("sla4"),
+#                 "Approver_level5_user_id": data.get("level5"),
+#                 "Approver_level5_time": data.get("sla5"),
+#                 # "Assign_to_id": data.get("assignTechnician"),
+#                 "Assign_to": str(data.get("assignTechnician", "")) or None,
+#                 "updated_date": timezone.now(),
+#                 "updated_by": updated_by,
+#             }
+#         )
+
+#         return Response({
+#             "success": True,
+#             "message": "Updated successfully"
+#         }, status=200)
+    
+#     # def put(self, request, pk, *args, **kwargs):
+#     #     data = request.data
+#     #     user = request.user if request.user.is_authenticated else None
+#     #     updated_by = user.firstname if user else "system"
+
+#     #     # 1. Get the existing TicketCategory
+#     #     category = self.get_object(pk)
+#     #     if not category:
+#     #         return Response({"error": "Category not found"}, status=404)
+
+#     #     # 2. Validate Entity (must match)
+#     #     try:
+#     #         entity_id = int(data.get("entity_id") or category.entity_id)
+#     #         entity = Entity.objects.get(id=entity_id)
+#     #     except (Entity.DoesNotExist, ValueError):
+#     #         return Response({"error": "Invalid entity_id"}, status=400)
+
+#     #     # 3. Validate Department
+#     #     try:
+#     #         dept_id = int(data.get("department_id") or category.department_id)
+#     #         department = TicketsMasterConfiguration.objects.get(
+#     #             id=dept_id,
+#     #             is_active="Y",
+#     #             entity_ids__contains=[entity_id]
+#     #         )
+#     #     except TicketsMasterConfiguration.DoesNotExist:
+#     #         return Response({"error": "Invalid or unauthorized department"}, status=400)
+
+#     #     # 4. Validate Location
+#     #     location = category.location  # default = old location
+#     #     if "location_id" in data and data["location_id"]:
+#     #         try:
+#     #             loc_id = int(data["location_id"])
+#     #             location = TicketsMasterConfiguration.objects.get(id=loc_id, is_active="Y")
+#     #         except (TicketsMasterConfiguration.DoesNotExist, ValueError):
+#     #             return Response({"error": "Invalid location_id"}, status=400)
+
+#     #     # 5. Update the category (if needed)
+#     #     category.department = department
+#     #     category.location = location
+#     #     category.is_active = data.get("is_active", category.is_active)
+#     #     category.save()
+
+#     #     # 6. Handle Subcategory
+#     #     subcategory = None
+#     #     if data.get("subcategory_id"):
+#     #         try:
+#     #             subcategory = TicketSubcategory.objects.get(id=int(data["subcategory_id"]))
+#     #         except TicketSubcategory.DoesNotExist:
+#     #             return Response({"error": "Invalid subcategory_id"}, status=400)
+#     #     elif data.get("subcategory_name"):
+#     #         subcategory, _ = TicketSubcategory.objects.get_or_create(
+#     #             entity=entity,
+#     #             category=category,
+#     #             subcategory_name=data["subcategory_name"],
+#     #             defaults={"is_active": "Y"}
+#     #         )
+
+#     #     # 7. UPDATE SLA — THIS IS THE FIX!
+#     #     sla_data = {
+#     #         "Approver_level1_user_id": data.get("level1"),
+#     #         "Approver_level1_time": data.get("sla1"),
+#     #         "Approver_level2_user_id": data.get("level2"),
+#     #         "Approver_level2_time": data.get("sla2"),
+#     #         "Approver_level3_user_id": data.get("level3"),
+#     #         "Approver_level3_time": data.get("sla3"),
+#     #         "Approver_level4_user_id": data.get("level4"),
+#     #         "Approver_level4_time": data.get("sla4"),
+#     #         "Approver_level5_user_id": data.get("level5"),
+#     #         "Approver_level5_time": data.get("sla5"),
+#     #         "Assign_to_id": data.get("assignTechnician"),
+#     #         "updated_date": timezone.now(),
+#     #         "updated_by": updated_by,
+#     #     }
+
+#     #     TicketSLA.objects.update_or_create(
+#     #         entity=entity,
+#     #         category=category,
+#     #         subcategory=subcategory,
+#     #         defaults=sla_data
+#     #     )
+
+#     #     return Response({
+#     #         "success": True,
+#     #         "message": "Category and SLA updated successfully",
+#     #         "category_id": category.id
+#     #     }, status=200)
+#     # def put(self, request, pk, *args, **kwargs):
+#     #     # PUT update ticket category
+#     #     instance = self.get_object(pk)
+#     #     if not instance:
+#     #         return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+#     #     serializer = TicketCategorySerializer(instance, data=request.data, partial=False)
+#     #     if serializer.is_valid():
+#     #         serializer.save(
+#     #             updated_date=timezone.now(),
+#     #             updated_by=request.user.firstname if request.user.is_authenticated else None
+#     #         )
+#     #         return Response(serializer.data)
+#     #     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 class TicketCategoryListCreateView(APIView):
-    permission_classes = []
+    permission_classes = [AllowAny]
+ 
     def get(self, request, *args, **kwargs):
         queryset = TicketCategory.objects.all()
         serializer = TicketCategorySerializer(queryset, many=True)
         return Response(serializer.data)
-
+ 
     def post(self, request, *args, **kwargs):
-        from Ticket.models import TicketsMasterConfiguration, TicketCategory, TicketSubcategory, TicketSLA
         data = request.data
         created_by = request.user.firstname if request.user.is_authenticated else "system"
         updated_by = request.user.firstname if request.user.is_authenticated else "system"
-
-
-        # Validate Entity
+ 
+        # Validate entity_ids
+        entity_ids_raw = data.get("entity_ids", [])
+        if not entity_ids_raw:
+            return Response({"error": "entity_ids (list) required"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            entity = Entity.objects.filter(id=int(data.get("entity_id"))).first()
-        except (Entity.DoesNotExist, TypeError, ValueError):
-            return Response({"error": "Invalid entity_id"}, status=status.HTTP_400_BAD_REQUEST)
-        print("entity :",entity)
+            entity_ids = sorted([int(eid) for eid in entity_ids_raw])
+        except (TypeError, ValueError):
+            return Response({"error": "entity_ids must be a list of integers"}, status=status.HTTP_400_BAD_REQUEST)
+ 
+        entities = Entity.objects.filter(id__in=entity_ids)
+        if len(entities) != len(entity_ids):
+            return Response({"error": "Invalid entity_ids"}, status=status.HTTP_400_BAD_REQUEST)
+ 
+        # Validate Department
+        dept_id = data.get("department_id")
+        if not dept_id:
+            return Response({"error": "department_id required"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            department = TicketsMasterConfiguration.objects.filter(id=int(data.get("department_id")), is_active="Y").first()
-        except Exception as e:
-            print("e :",e)
+            dept_id = int(dept_id)
+        except ValueError:
             return Response({"error": "Invalid department_id"}, status=status.HTTP_400_BAD_REQUEST)
-        if entity.id not in department.entity_ids:
-            # ID not allowed
-            return Response({"error": "Entity not allowed in department"}, status=403)
+ 
+        # Check if all entity_ids are allowed in department
+        department = TicketsMasterConfiguration.objects.filter(
+            id=dept_id,
+            is_active="Y"
+        ).filter(*[Q(entity_ids__contains=[eid]) for eid in entity_ids]).first()
+        if not department:
+            return Response({"error": "Invalid department_id or entities not allowed in department"}, status=status.HTTP_400_BAD_REQUEST)
+ 
         # Handle Category
         category_id = data.get("category_id")
         category_name = data.get("category_name")
-
+ 
         if category_id:
             try:
                 category = TicketCategory.objects.get(id=int(category_id))
+                # Override entity_ids if mismatch (flexible reuse)
+                if sorted(category.entity_ids) != entity_ids:
+                    category.entity_ids = entity_ids
+                    category.is_active = data.get("is_active", category.is_active)
+                    category.updated_date = timezone.now()
+                    category.updated_by = updated_by
+                    category.save()
             except TicketCategory.DoesNotExist:
                 return Response({"error": "Invalid category_id"}, status=status.HTTP_400_BAD_REQUEST)
         elif category_name:
-            category, created = TicketCategory.objects.get_or_create(
+            # Check if category already exists with same params
+            existing_categories = TicketCategory.objects.filter(
                 category_name=category_name,
-                entity=entity,
                 department=department,
-                defaults={
-                    "category_description": category_name,
-                    "is_active": "Y",
-                    "created_date": timezone.now(),
-                    "updated_date": timezone.now(),
-                }
+                entity_ids=entity_ids
             )
+            if existing_categories.exists():
+                category = existing_categories.first()
+            else:
+                category = TicketCategory.objects.create(
+                    entity_ids=entity_ids,
+                    department=department,
+                    category_name=category_name,
+                    category_description=data.get("category_description", category_name),
+                    is_active=data.get("is_active", "Y"),
+                    created_date=timezone.now(),
+                    created_by=created_by,
+                    updated_date=timezone.now(),
+                    updated_by=updated_by
+                )
         else:
             return Response({"error": "category_id or category_name required"}, status=status.HTTP_400_BAD_REQUEST)
-        # Handle Subcategory
-        subcategory_id = data.get("subcategory_id")
-        subcategory_name = data.get("subcategory_name")
-        subcategory = None
-
-        if subcategory_id:
+ 
+        # Handle Subcategory IDs (support multiple)
+        subcategory_ids_raw = data.get("subcategory_ids", [])
+        if isinstance(subcategory_ids_raw, list):
             try:
-                subcategory = TicketSubcategory.objects.get(id=int(subcategory_id))
-            except TicketSubcategory.DoesNotExist:
-                return Response({"error": "Invalid subcategory_id"}, status=status.HTTP_400_BAD_REQUEST)
-        elif subcategory_name:
-            subcategory, created = TicketSubcategory.objects.get_or_create(
-                subcategory_name=subcategory_name,
-                category=category,
-                entity_id=entity.id,
-                defaults={
-                    "subcategory_description": subcategory_name,
-                    "is_active": "Y",
-                    "created_date": timezone.now(),
-                    "updated_date": timezone.now(),
-                }
-            )
-
-  
+                subcategory_ids = [int(sid) for sid in subcategory_ids_raw]
+                # Validate they belong to the category
+                valid_subcats = TicketSubcategory.objects.filter(id__in=subcategory_ids, category=category)
+                if len(valid_subcats) != len(subcategory_ids):
+                    return Response({"error": "Invalid subcategory_ids (must belong to the category)"}, status=status.HTTP_400_BAD_REQUEST)
+            except (TypeError, ValueError):
+                return Response({"error": "subcategory_ids must be a list of integers"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            subcategory_ids = []
+ 
+        # SLA Data
         sla_data = {
             "Approver_level1_user_id": data.get("level1"),
             "Approver_level1_time": data.get("sla1"),
@@ -1153,103 +1483,135 @@ class TicketCategoryListCreateView(APIView):
             "Approver_level4_time": data.get("sla4"),
             "Approver_level5_user_id": data.get("level5"),
             "Approver_level5_time": data.get("sla5"),
-            "Assign_to": data.get("assign_technician"),
-            # "Assign_to_id": data.get("assignTechnician"),
+            "assigned_user_id": data.get("assigned_user_id"),
+            "assigned_group_id": data.get("assigned_group_id"),
+            "confidential": data.get("confidential", "N"),
+            "Execution_by": data.get("assign_technician"),  # Use correct field name (from prior fix)
             "is_active": "Y",
             "updated_date": timezone.now(),
-            "updated_by":updated_by,
+            "updated_by": updated_by,
         }
-
-        ticket_sla, created = TicketSLA.objects.update_or_create(
-            entity=entity,
+ 
+        # Handle SLA
+        existing_sla = TicketSLA.objects.filter(
+            entity_ids=entity_ids,
             category=category,
-            subcategory=subcategory,
-            defaults=sla_data
-        )
-
-        if created:
-            ticket_sla.created_date = timezone.now()
-            created
-            ticket_sla.save()
-
-
-
+            subcategory_ids=subcategory_ids  # Use list for exact match
+        ).first()
+ 
+        created = False
+        if existing_sla:
+            for key, value in sla_data.items():
+                setattr(existing_sla, key, value)
+            existing_sla.updated_date = timezone.now()
+            existing_sla.updated_by = updated_by
+            existing_sla.save()
+        else:
+            TicketSLA.objects.create(
+                entity_ids=entity_ids,
+                category=category,
+                subcategory_ids=subcategory_ids,  # Pass the list here
+                **sla_data,
+                created_date=timezone.now(),
+                created_by=created_by
+            )
+            created = True
+ 
         return Response({
             "success": True,
-            "message": "Category, Subcategory, and SLA created successfully",
+            "message": "Category, Subcategory, and SLA created/updated successfully",
             "category_id": category.id,
-            "subcategory_id": subcategory.id if subcategory else None,
+            "subcategory_id": None,  # Since multiple, set to null
             "department_id": department.id
-        }, status=status.HTTP_201_CREATED)
-    
-
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+ 
+ 
 class TicketCategoryRetrieveUpdateView(APIView):
-    # permission_classes = [IsAuthenticated]  # Requires authentication for all operations
     permission_classes = [AllowAny]
+ 
     def get_object(self, pk):
         try:
             return TicketCategory.objects.get(pk=pk)
         except TicketCategory.DoesNotExist:
             return None
-
+ 
     def get(self, request, pk, *args, **kwargs):
-        # GET single ticket category
         instance = self.get_object(pk)
         if not instance:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         serializer = TicketCategorySerializer(instance)
         return Response(serializer.data)
-    
+ 
     def put(self, request, pk, *args, **kwargs):
         data = request.data
-        updated_by = "system"
-
+        updated_by = request.user.firstname if request.user.is_authenticated else "system"
+ 
         # Get category
         try:
             category = TicketCategory.objects.get(pk=pk)
         except TicketCategory.DoesNotExist:
             return Response({"error": "Category not found"}, status=404)
-
-        # Entity
+ 
+        # Entity_ids
+        entity_ids_raw = data.get("entity_ids", category.entity_ids or [])
         try:
-            entity_id = int(data.get("entity_id") or category.entity_id)
-            entity = Entity.objects.get(id=entity_id)
-        except (Entity.DoesNotExist, ValueError):
-            return Response({"error": "Invalid entity_id"}, status=400)
-
-        # Department only
+            entity_ids = sorted([int(eid) for eid in entity_ids_raw])
+        except (TypeError, ValueError):
+            return Response({"error": "entity_ids must be a list of integers"}, status=400)
+ 
+        if not entity_ids:
+            return Response({"error": "entity_ids required"}, status=400)
+ 
+        entities = Entity.objects.filter(id__in=entity_ids)
+        if len(entities) != len(entity_ids):
+            return Response({"error": "Invalid entity_ids"}, status=400)
+ 
+        # Department
+        dept_id = data.get("department_id", category.department_id)
         try:
-            dept_id = int(data.get("department_id") or category.department_id)
-            department = TicketsMasterConfiguration.objects.get(
-                id=dept_id,
-                is_active="Y",
-                entity_ids__contains=[entity_id]
-            )
-        except TicketsMasterConfiguration.DoesNotExist:
+            dept_id = int(dept_id)
+        except ValueError:
+            return Response({"error": "Invalid department_id"}, status=400)
+ 
+        department = TicketsMasterConfiguration.objects.filter(
+            id=dept_id,
+            is_active="Y"
+        ).filter(*[Q(entity_ids__contains=[eid]) for eid in entity_ids]).first()
+        if not department:
             return Response({"error": "Invalid department"}, status=400)
-
-        # UPDATE CATEGORY — NO LOCATION AT ALL
-        category.entity = entity
+ 
+        # Update Category
+        category.entity_ids = entity_ids
         category.department = department
-        category.is_active = data.get("is_active", "Y")
+        category.is_active = data.get("is_active", category.is_active)
+        category.category_name = data.get("category_name", category.category_name)
+        category.category_description = data.get("category_description", category.category_description)
         category.updated_date = timezone.now()
         category.updated_by = updated_by
         category.save()
-
-        # Subcategory
-        subcategory = None
-        if data.get("subcategory_id"):
+ 
+        # Handle Subcategory IDs (multiple)
+        subcategory_ids_raw = data.get("subcategory_ids", [])
+        if isinstance(subcategory_ids_raw, list):
             try:
-                subcategory = TicketSubcategory.objects.get(id=int(data["subcategory_id"]))
-            except TicketSubcategory.DoesNotExist:
-                return Response({"error": "Invalid subcategory_id"}, status=400)
-
-        # UPDATE SLA
-        TicketSLA.objects.update_or_create(
-            entity=entity,
+                subcategory_ids = [int(sid) for sid in subcategory_ids_raw]
+                # Validate they belong to the category
+                valid_subcats = TicketSubcategory.objects.filter(id__in=subcategory_ids, category=category)
+                if len(valid_subcats) != len(subcategory_ids):
+                    return Response({"error": "Invalid subcategory_ids (must belong to the category)"}, status=400)
+            except (TypeError, ValueError):
+                return Response({"error": "subcategory_ids must be a list of integers"}, status=400)
+        else:
+            subcategory_ids = []
+ 
+        # Update SLA
+        existing_sla = TicketSLA.objects.filter(
+            entity_ids=entity_ids,
             category=category,
-            subcategory=subcategory,
-            defaults={
+            subcategory_ids=subcategory_ids  # Fixed: Use list for exact match
+        ).first()
+        if existing_sla:
+            sla_data = {
                 "Approver_level1_user_id": data.get("level1"),
                 "Approver_level1_time": data.get("sla1"),
                 "Approver_level2_user_id": data.get("level2"),
@@ -1260,179 +1622,73 @@ class TicketCategoryRetrieveUpdateView(APIView):
                 "Approver_level4_time": data.get("sla4"),
                 "Approver_level5_user_id": data.get("level5"),
                 "Approver_level5_time": data.get("sla5"),
-                # "Assign_to_id": data.get("assignTechnician"),
-                "Assign_to": str(data.get("assignTechnician", "")) or None,
+                "assigned_user_id": data.get("assigned_user_id"),
+                "assigned_group_id": data.get("assigned_group_id"),
+                "confidential": data.get("confidential", existing_sla.confidential),
+                "Execution_by": data.get("assign_technician"),
+                "is_active": data.get("is_active", existing_sla.is_active),
                 "updated_date": timezone.now(),
                 "updated_by": updated_by,
             }
-        )
-
+            for key, value in sla_data.items():
+                setattr(existing_sla, key, value)
+            existing_sla.save()
+        else:
+            # Create if not exists
+            TicketSLA.objects.create(
+                entity_ids=entity_ids,
+                category=category,
+                subcategory_ids=subcategory_ids,
+                Approver_level1_user_id=data.get("level1"),
+                Approver_level1_time=data.get("sla1"),
+                Approver_level2_user_id=data.get("level2"),
+                Approver_level2_time=data.get("sla2"),
+                Approver_level3_user_id=data.get("level3"),
+                Approver_level3_time=data.get("sla3"),
+                Approver_level4_user_id=data.get("level4"),
+                Approver_level4_time=data.get("sla4"),
+                Approver_level5_user_id=data.get("level5"),
+                Approver_level5_time=data.get("sla5"),
+                assigned_user_id=data.get("assigned_user_id"),
+                assigned_group_id=data.get("assigned_group_id"),
+                confidential=data.get("confidential", "N"),
+                Execution_by=data.get("assign_technician"),
+                is_active="Y",
+                created_date=timezone.now(),
+                created_by=updated_by,
+                updated_date=timezone.now(),
+                updated_by=updated_by
+            )
+ 
         return Response({
             "success": True,
             "message": "Updated successfully"
         }, status=200)
-    
-    # def put(self, request, pk, *args, **kwargs):
-    #     data = request.data
-    #     user = request.user if request.user.is_authenticated else None
-    #     updated_by = user.firstname if user else "system"
-
-    #     # 1. Get the existing TicketCategory
-    #     category = self.get_object(pk)
-    #     if not category:
-    #         return Response({"error": "Category not found"}, status=404)
-
-    #     # 2. Validate Entity (must match)
-    #     try:
-    #         entity_id = int(data.get("entity_id") or category.entity_id)
-    #         entity = Entity.objects.get(id=entity_id)
-    #     except (Entity.DoesNotExist, ValueError):
-    #         return Response({"error": "Invalid entity_id"}, status=400)
-
-    #     # 3. Validate Department
-    #     try:
-    #         dept_id = int(data.get("department_id") or category.department_id)
-    #         department = TicketsMasterConfiguration.objects.get(
-    #             id=dept_id,
-    #             is_active="Y",
-    #             entity_ids__contains=[entity_id]
-    #         )
-    #     except TicketsMasterConfiguration.DoesNotExist:
-    #         return Response({"error": "Invalid or unauthorized department"}, status=400)
-
-    #     # 4. Validate Location
-    #     location = category.location  # default = old location
-    #     if "location_id" in data and data["location_id"]:
-    #         try:
-    #             loc_id = int(data["location_id"])
-    #             location = TicketsMasterConfiguration.objects.get(id=loc_id, is_active="Y")
-    #         except (TicketsMasterConfiguration.DoesNotExist, ValueError):
-    #             return Response({"error": "Invalid location_id"}, status=400)
-
-    #     # 5. Update the category (if needed)
-    #     category.department = department
-    #     category.location = location
-    #     category.is_active = data.get("is_active", category.is_active)
-    #     category.save()
-
-    #     # 6. Handle Subcategory
-    #     subcategory = None
-    #     if data.get("subcategory_id"):
-    #         try:
-    #             subcategory = TicketSubcategory.objects.get(id=int(data["subcategory_id"]))
-    #         except TicketSubcategory.DoesNotExist:
-    #             return Response({"error": "Invalid subcategory_id"}, status=400)
-    #     elif data.get("subcategory_name"):
-    #         subcategory, _ = TicketSubcategory.objects.get_or_create(
-    #             entity=entity,
-    #             category=category,
-    #             subcategory_name=data["subcategory_name"],
-    #             defaults={"is_active": "Y"}
-    #         )
-
-    #     # 7. UPDATE SLA — THIS IS THE FIX!
-    #     sla_data = {
-    #         "Approver_level1_user_id": data.get("level1"),
-    #         "Approver_level1_time": data.get("sla1"),
-    #         "Approver_level2_user_id": data.get("level2"),
-    #         "Approver_level2_time": data.get("sla2"),
-    #         "Approver_level3_user_id": data.get("level3"),
-    #         "Approver_level3_time": data.get("sla3"),
-    #         "Approver_level4_user_id": data.get("level4"),
-    #         "Approver_level4_time": data.get("sla4"),
-    #         "Approver_level5_user_id": data.get("level5"),
-    #         "Approver_level5_time": data.get("sla5"),
-    #         "Assign_to_id": data.get("assignTechnician"),
-    #         "updated_date": timezone.now(),
-    #         "updated_by": updated_by,
-    #     }
-
-    #     TicketSLA.objects.update_or_create(
-    #         entity=entity,
-    #         category=category,
-    #         subcategory=subcategory,
-    #         defaults=sla_data
-    #     )
-
-    #     return Response({
-    #         "success": True,
-    #         "message": "Category and SLA updated successfully",
-    #         "category_id": category.id
-    #     }, status=200)
-    # def put(self, request, pk, *args, **kwargs):
-    #     # PUT update ticket category
-    #     instance = self.get_object(pk)
-    #     if not instance:
-    #         return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-    #     serializer = TicketCategorySerializer(instance, data=request.data, partial=False)
-    #     if serializer.is_valid():
-    #         serializer.save(
-    #             updated_date=timezone.now(),
-    #             updated_by=request.user.firstname if request.user.is_authenticated else None
-    #         )
-    #         return Response(serializer.data)
-    #     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-# class HodUserAPIView(APIView):
-#     # def get(self, request):
-#     #     """Retrieve all HOD users"""
-#     #     hods = User.objects.filter(is_hod=True)
-#     #     serializer = UserSerializer(hods, many=True)
-#     #     return Response(serializer.data, status=status.HTTP_200_OK)
-#     def get(self, request):
-#         """Retrieve all HOD users with ticket approval counts (approved, rejected, on_hold, sla_breached)"""
-#         hods = User.objects.filter(is_hod=True)
+ 
+ 
+class TicketSubcategoryListCreateView(APIView):
+    permission_classes = [AllowAny]
+ 
+    def get(self, request, *args, **kwargs):
+        category_id = request.query_params.get('category_id')
+        queryset = TicketSubcategory.objects.all()
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+        serializer = TicketSubcategorySerializer(queryset, many=True)
+        return Response(serializer.data)
+ 
+    def post(self, request, *args, **kwargs):
+        serializer = TicketSubcategorySerializer(data=request.data)
+        if serializer.is_valid():
+            instance = serializer.save(
+                created_date=timezone.now(),
+                updated_date=timezone.now(),
+                created_by=request.user.firstname if request.user.is_authenticated else "system",
+                updated_by=request.user.firstname if request.user.is_authenticated else "system"
+            )
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
-#         # Helper for counts per HOD
-#         def get_hod_counts(hod):
-#             approver_logs_qs = TicketApprovalLog.objects.filter(created_by=hod)
-            
-#             # Total tickets handled by this HOD (unique tickets from logs)
-#             total_tickets = CreateTicket.objects.filter(
-#                 id__in=approver_logs_qs.values_list('ticket', flat=True).distinct()
-#             ).count()
-            
-#             # Approved count
-#             approved_count = approver_logs_qs.filter(approved_by=hod).count()
-            
-#             # Rejected count
-#             rejected_count = approver_logs_qs.filter(status__iexact='Rejected').count()
-            
-#             # On Hold count
-#             on_hold_count = approver_logs_qs.filter(status__iexact='OnHold').count()
-            
-#             # SLA Breached count
-#             sla_breached_count = approver_logs_qs.filter(sla_breach=True).count()
-            
-#             return {
-#                 'total_tickets': total_tickets,
-#                 'approved_count': approved_count,
-#                 'rejected_count': rejected_count,
-#                 'on_hold_count': on_hold_count,
-#                 'sla_breached_count': sla_breached_count,
-#             }
-
-#         hod_data = []
-#         for hod in hods:
-#             base_data = UserSerializer(hod).data
-#             counts = get_hod_counts(hod)
-#             hod_dict = {**base_data, **counts}
-#             hod_data.append(hod_dict)
-
-#         return Response(hod_data, status=status.HTTP_200_OK)
-#     def post(self, request):
-#         """Create a new HOD user"""
-#         data = request.data.copy()  # Make a mutable copy
-#         data["is_hod"] = True  # Force the new user to be a HOD
-        
-#         serializer = UserSerializer(data=data)
-#         if serializer.is_valid():
-#             user = serializer.save()
-#             return Response(
-#                 {"message": "HOD user created successfully", "user": serializer.data},
-#                 status=status.HTTP_201_CREATED
-#             )
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 
@@ -1775,63 +2031,7 @@ class HodUserAPIView(APIView):
                 status=status.HTTP_201_CREATED
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-# class EntityAPIView(APIView):
-#     permission_classes = [AllowAny]
-#     parser_classes = [MultiPartParser, FormParser]
-#     def get(self, request):
-#         pk = request.query_params.get('id', None)
-#         if pk:
-#             entity = get_object_or_404(Entity, pk=pk)
-#             serializer = EntitySerializer(entity)
-#             return Response(serializer.data)
-#         entities = Entity.objects.all()
-#         serializer = EntitySerializer(entities, many=True)
-#         return Response(serializer.data)
 
-#     def post(self, request):
-#         pk = request.data.get('id', None)
-#         user = str(request.user) if request.user.is_authenticated else 'Anonymous'
-
-
-#         if pk:
-#             # Update existing entity
-#             entity = get_object_or_404(Entity, pk=pk)
-#             serializer = EntitySerializer(entity, data=request.data, partial=True)
-#             if serializer.is_valid():
-#                 serializer.save(updated_by=user, updated_date=timezone.now())
-#                 return Response(serializer.data)
-#             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-#         # Create new entity
-#         serializer = EntitySerializer(data=request.data)
-#         if serializer.is_valid():
-#             serializer.save(
-#                 created_by=user,
-#                 updated_by=user,
-#                 created_date=timezone.now(),
-#                 updated_date=timezone.now()
-#             )
-#             return Response(serializer.data, status=status.HTTP_201_CREATED)
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-#     def put(self, request, pk=None):
-#         if not pk:
-#             return Response({'error': 'ID required for update'}, status=status.HTTP_400_BAD_REQUEST)
-
-#         entity = get_object_or_404(Entity, pk=pk)
-#         serializer = EntitySerializer(entity, data=request.data, partial=True)
-#         if serializer.is_valid():
-#             user = str(request.user) if request.user.is_authenticated else 'Anonymous'
-#             serializer.save(updated_by=user, updated_date=timezone.now())
-#             return Response(serializer.data)
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-#     def delete(self, request, pk=None):
-#         if not pk:
-#             return Response({'error': 'ID required for delete'}, status=status.HTTP_400_BAD_REQUEST)
-#         entity = get_object_or_404(Entity, pk=pk)
-#         entity.is_active = False
-#         entity.save()
-#         return Response({'success': 'Entity marked inactive'})
 
 class EntityAPIView(APIView):
     permission_classes = [AllowAny]
@@ -3424,9 +3624,708 @@ User = get_user_model()
  
 #         return Response(data, status=status.HTTP_200_OK)
 
+# class TicketView(APIView):
+#     def get(self, request):
+#         """Get user ticket stats with New, Solved, Closed, and Cancelled statuses"""
+#         # Get query parameters
+#         start_date_str = request.query_params.get('start_date')
+#         end_date_str = request.query_params.get('end_date')
+#         search = request.query_params.get('search', '').strip()
+#         entity_id = request.query_params.get('entity_id')
+ 
+#         # Get user's email for assignee matching
+#         user_email = request.user.email
+        
+#         # Base querysets for user - focus on requested tickets for "MY REQUEST"
+#         user_requested_qs = CreateTicket.objects.filter(requested=request.user)
+        
+#         # Apply entity filter
+#         if entity_id:
+#             try:
+#                 entity_id = int(entity_id)
+#                 user_requested_qs = user_requested_qs.filter(entity_id=entity_id)
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid entity_id"}, status=400)
+ 
+#         # Apply date filter
+#         start_date = end_date = None
+#         if start_date_str and end_date_str:
+#             try:
+#                 start_date = timezone.make_aware(
+#                     timezone.datetime.strptime(start_date_str, '%Y-%m-%d')
+#                 )
+#                 end_date = timezone.make_aware(
+#                     timezone.datetime.strptime(end_date_str, '%Y-%m-%d')
+#                 ) + timedelta(days=1) - timedelta(seconds=1)
+ 
+#                 user_requested_qs = user_requested_qs.filter(
+#                     created_date__gte=start_date, created_date__lte=end_date
+#                 )
+#             except ValueError:
+#                 return Response({"error": "Invalid date format. Use YYYY-MM-DD."},
+#                                 status=status.HTTP_400_BAD_REQUEST)
+ 
+#         # Apply search filter
+#         if search:
+#             search_filter = Q(title__icontains=search) | Q(description__icontains=search)
+#             user_requested_qs = user_requested_qs.filter(search_filter)
+
+#         # Helper function to get tickets by status
+#         def get_tickets_by_status(queryset, status_name):
+#             tickets = queryset.filter(status__field_name__iexact=status_name).distinct().order_by("-ticket_no")
+            
+#             # Simple serialization - no limit, returns all, dedup by id
+#             tickets_data = []
+#             seen_ids = set()
+#             for ticket in tickets:
+#                 if ticket.id in seen_ids:
+#                     continue
+#                 seen_ids.add(ticket.id)
+                
+#                 # assigned_users is already a list from JSONField (assuming list of user IDs or emails)
+#                 assigned_user_ids = ticket.assigned_users if ticket.assigned_users else []
+                
+#                 # assigned_groups is already a list from JSONField (list of group IDs)
+#                 assigned_group_ids = ticket.assigned_groups if ticket.assigned_groups else []
+                
+#                 # Collect all assignees_detail: list of user objects from direct assignees and group members
+#                 assignees_detail = []
+#                 seen_assignee_ids = set()  # To deduplicate across direct and groups
+                
+#                 # Handle direct assignees
+#                 if assigned_user_ids:
+#                     # Assuming assigned_user_ids is list of integers (user IDs); adjust if emails
+#                     try:
+#                         # Filter users by IDs
+#                         direct_users = User.objects.filter(id__in=assigned_user_ids).values(
+#                             'id', 'firstname', 'lastname', 'email', 'username'
+#                         )
+#                         for user_data in direct_users:
+#                             user_id = user_data['id']
+#                             if user_id not in seen_assignee_ids:
+#                                 seen_assignee_ids.add(user_id)
+#                                 assignees_detail.append({
+#                                     "id": user_id,
+#                                     "firstname": user_data['firstname'] or user_data['username'] or "Unknown",
+#                                     "lastname": user_data['lastname'] or "",
+#                                     "email": user_data['email'],
+#                                     "name": f"{user_data['firstname']} {user_data['lastname']}".strip() or user_data['username'] or "Unknown"
+#                                 })
+#                     except Exception as e:
+#                         # If IDs are invalid or emails, handle accordingly
+#                         print(f"Error fetching direct assignees: {e}")
+                
+#                 # Handle group assignees: add group members if no direct or to supplement
+#                 if assigned_group_ids:
+#                     for group_id in assigned_group_ids:
+#                         try:
+#                             group = UsersGroup.objects.get(id=group_id)
+#                             group_members = group.get_users()
+#                             for member in group_members:
+#                                 member_id = member.id
+#                                 if member_id not in seen_assignee_ids:
+#                                     seen_assignee_ids.add(member_id)
+#                                     assignees_detail.append({
+#                                         "id": member_id,
+#                                         "firstname": getattr(member, 'firstname', None) or getattr(member, 'name', None) or getattr(member, 'username', "Unknown"),
+#                                         "lastname": getattr(member, 'lastname', "") or "",
+#                                         "email": member.email,
+#                                         "name": f"{getattr(member, 'firstname', '')} {getattr(member, 'lastname', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
+#                                     })
+#                         except UsersGroup.DoesNotExist:
+#                             pass
+#                         except Exception as e:
+#                             print(f"Error fetching group members: {e}")
+                
+#                 # Fallback: if still no assignees, use assigned_group details if present
+#                 assigned_groups_detail = []
+#                 if not assignees_detail and ticket.assigned_group:
+#                     assigned_groups_detail = [{
+#                         "id": ticket.assigned_group.id,
+#                         "name": ticket.assigned_group.name,
+#                         "members": [],  # Empty if not populated
+#                         "members_count": 0
+#                     }]
+#                 elif assigned_group_ids:
+#                     # Optionally populate full group details with members
+#                     for group_id in assigned_group_ids:
+#                         try:
+#                             group = UsersGroup.objects.get(id=group_id)
+#                             group_members = group.get_users()
+#                             assigned_groups_detail.append({
+#                                 "id": group.id,
+#                                 "name": group.name,
+#                                 "members": [  # List of member dicts
+#                                     {
+#                                         "id": m.id,
+#                                         "firstname": getattr(m, 'firstname', None) or getattr(m, 'name', None) or getattr(m, 'username', "Unknown"),
+#                                         "lastname": getattr(m, 'lastname', "") or "",
+#                                         "email": m.email,
+#                                         "name": f"{getattr(m, 'firstname', '')} {getattr(m, 'lastname', '')}".strip() or getattr(m, 'username', "Unknown") or getattr(m, 'name', "Unknown")
+#                                     } for m in group_members
+#                                 ],
+#                                 "members_count": len(group_members)
+#                             })
+#                         except UsersGroup.DoesNotExist:
+#                             pass
+                
+#                 tickets_data.append({
+#                     "id": ticket.id,
+#                     "ticket_no": ticket.ticket_no,
+#                     "title": ticket.title,
+#                     "description": ticket.description[:100] + "..." if len(ticket.description) > 100 else ticket.description,
+#                     "status": ticket.status.field_name if ticket.status else None,
+#                     "status_detail": {
+#                         "id": ticket.status.id if ticket.status else None,
+#                         "field_name": ticket.status.field_name if ticket.status else None,
+#                         "field_values": ticket.status.field_values if ticket.status else None
+#                     } if ticket.status else None,
+#                     "priority": ticket.priority.field_name if ticket.priority else None,
+#                     "priority_detail": {
+#                         "id": ticket.priority.id if ticket.priority else None,
+#                         "field_name": ticket.priority.field_name if ticket.priority else None,
+#                         "field_values": ticket.priority.field_values if ticket.priority else None
+#                     } if ticket.priority else None,
+#                     "category": ticket.category.category_name if ticket.category else None,
+#                     "category_detail": {
+#                         "id": ticket.category.id if ticket.category else None,
+#                         "category_name": ticket.category.category_name if ticket.category else None,
+#                     } if ticket.category else None,
+#                     "subcategory": ticket.subcategory.subcategory_name if ticket.subcategory else None,
+#                     "subcategory_detail": {
+#                         "id": ticket.subcategory.id if ticket.subcategory else None,
+#                         "subcategory_name": ticket.subcategory.subcategory_name if ticket.subcategory else None
+#                     } if ticket.subcategory else None,
+#                     "department": ticket.department.field_name if ticket.department else None,
+#                     "department_detail": {
+#                         "id": ticket.department.id if ticket.department else None,
+#                         "field_name": ticket.department.field_name if ticket.department else None
+#                     } if ticket.department else None,
+#                     "location": ticket.location.field_name if ticket.location else None,
+#                     "location_detail": {
+#                         "id": ticket.location.id if ticket.location else None,
+#                         "field_name": ticket.location.field_name if ticket.location else None
+#                     } if ticket.location else None,
+#                     "requested_by": ticket.requested.email if ticket.requested else None,
+#                     "requested_detail": {
+#                         "id": ticket.requested.id if ticket.requested else None,
+#                         "name": (
+#                             getattr(ticket.requested, 'name', None) or 
+#                             getattr(ticket.requested, 'firstname', None) or 
+#                             ticket.requested.email
+#                         ) if ticket.requested else None,
+#                         "email": ticket.requested.email if ticket.requested else None
+#                     } if ticket.requested else None,
+#                     "assignees_detail": assignees_detail,  # List of assignee objects (direct + group members)
+#                     "assignee": ticket.assignee,  # Legacy single assignee
+#                     "assigned_groups_detail": assigned_groups_detail,  # Full group details if needed
+#                     "assigned_group": {
+#                         "id": ticket.assigned_group.id if ticket.assigned_group else None,
+#                         "name": ticket.assigned_group.name if ticket.assigned_group else None
+#                     } if ticket.assigned_group else None,
+#                     "created_date": ticket.created_date,
+#                     "updated_date": getattr(ticket, 'updated_date', ticket.created_date),
+#                 })
+            
+#             return {
+#                 "count": len(tickets_data),  # Use len of list to ensure accurate count
+#                 "tickets": tickets_data
+#             }
+
+#         # Get NEW requested tickets (user requested) - tickets requested by user with status "New"
+#         new_tickets = get_tickets_by_status(user_requested_qs, 'New')
+        
+#         # Get SOLVED requested tickets (user requested)
+#         solved_tickets = get_tickets_by_status(user_requested_qs, 'Solved')
+        
+#         # Get CLOSED requested tickets (user requested)
+#         closed_tickets = get_tickets_by_status(user_requested_qs, 'Closed')
+        
+#         # Get CANCELLED requested tickets (user requested)
+#         cancelled_tickets = get_tickets_by_status(user_requested_qs, 'Cancelled')
+        
+#         # Total user requested tickets
+#         total_user_tickets = user_requested_qs.distinct().count()
+
+#         # Prepare response - use requested keys for compatibility
+#         data = {
+#             "success": True,
+#             "user_email": user_email,
+#             "user_stats": {
+#                 "total_tickets": total_user_tickets,
+#                 "new_assigned": new_tickets["count"],  # Rename to match component, but it's requested
+#                 "new_assigned_tickets": new_tickets["tickets"],
+#                 "solved": solved_tickets["count"],
+#                 "solved_tickets": solved_tickets["tickets"],
+#                 "closed": closed_tickets["count"],
+#                 "closed_tickets": closed_tickets["tickets"],
+#                 "cancelled": cancelled_tickets["count"],
+#                 "cancelled_tickets": cancelled_tickets["tickets"],
+#                 "ticket_sources": {
+#                     "requested_by_me": user_requested_qs.distinct().count(),
+#                 }
+#             }
+#         }
+ 
+#         return Response(data, status=status.HTTP_200_OK)    
+# class ApproverTicketView(APIView):
+#     def get(self, request):
+#         # Get query parameters
+#         print("data :", request.GET)
+#         start_date_str = request.query_params.get('start_date')
+#         end_date_str = request.query_params.get('end_date')
+#         search = request.query_params.get('search', '').strip()
+#         entity_id = request.query_params.get('entity_id')
+#         assignee_user = request.query_params.get('assignee_user')
+#         assignee_group = request.query_params.get('assignee_group')
+ 
+#         user_email = request.user.email
+        
+#         # Filter tickets where current user is in assigned_users
+#         assigned_tickets_qs = CreateTicket.objects.all()
+        
+#         # IMPORTANT: Filter tickets where current user is assigned
+#         # Check if user ID or email is in assigned_users array
+#         current_user_id = request.user.id
+#         current_user_email = request.user.email
+        
+#         # Create a filter for assigned users containing current user
+#         assigned_tickets_qs = assigned_tickets_qs.filter(
+#             Q(assigned_users__contains=current_user_id) |
+#             Q(assigned_users__contains=current_user_email) |
+#             Q(assigned_users__contains=f'"{current_user_email}"') |
+#             # Also check legacy assignee field
+#             Q(assignee=current_user_id)
+#         ).distinct()
+        
+#         print("assigned_tickets_qs count:", assigned_tickets_qs.count())
+        
+#         # Apply entity filter
+#         if entity_id:
+#             try:
+#                 entity_id = int(entity_id)
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(entity_id=entity_id)
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid entity_id"}, status=400)
+        
+#         # Apply assignee_user filter (if provided)
+#         if assignee_user:
+#             try:
+#                 assignee_user_id = int(assignee_user)
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(
+#                     Q(assigned_users__contains=assignee_user_id) |
+#                     Q(assigned_users__contains=str(assignee_user_id)) |
+#                     Q(assignee=assignee_user_id)
+#                 ).distinct()
+#             except ValueError:
+#                 # Treat as email
+#                 assignee_email = assignee_user
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(
+#                     Q(assigned_users__contains=assignee_email) |
+#                     Q(assigned_users__contains=f'"{assignee_email}"')
+#                 ).distinct()
+        
+#         # Apply assignee_group filter
+#         if assignee_group:
+#             try:
+#                 assignee_group_id = int(assignee_group)
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(
+#                     Q(assigned_groups__contains=assignee_group_id) |
+#                     Q(assigned_groups__contains=str(assignee_group_id)) |
+#                     Q(assigned_group=assignee_group_id)
+#                 ).distinct()
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid assignee_group ID"}, status=400)
+ 
+#         # Apply date filter
+#         start_date = end_date = None
+#         if start_date_str and end_date_str:
+#             try:
+#                 start_date = timezone.make_aware(
+#                     timezone.datetime.strptime(start_date_str, '%Y-%m-%d')
+#                 )
+#                 end_date = timezone.make_aware(
+#                     timezone.datetime.strptime(end_date_str, '%Y-%m-%d')
+#                 ) + timedelta(days=1) - timedelta(seconds=1)
+ 
+#                 assigned_tickets_qs = assigned_tickets_qs.filter(
+#                     created_date__gte=start_date, created_date__lte=end_date
+#                 )
+#             except ValueError:
+#                 return Response({"error": "Invalid date format. Use YYYY-MM-DD."},
+#                                 status=status.HTTP_400_BAD_REQUEST)
+ 
+#         # Apply search filter
+#         if search:
+#             search_filter = Q(title__icontains=search) | Q(description__icontains=search)
+#             assigned_tickets_qs = assigned_tickets_qs.filter(search_filter)
+
+#         # def get_user_details(user_identifier):
+#         #     try:
+#         #         user_obj = None
+
+#         #         # Case 1: ID
+#         #         if isinstance(user_identifier, int) or (
+#         #             isinstance(user_identifier, str) and user_identifier.isdigit()
+#         #         ):
+#         #             user_obj = User.objects.filter(id=int(user_identifier)).first()
+
+#         #         # Case 2: Email
+#         #         else:
+#         #             email = str(user_identifier).strip().strip('"\'')
+#         #             user_obj = User.objects.filter(email__iexact=email).first()
+
+#         #         if not user_obj:
+#         #             raise User.DoesNotExist
+
+#         #         return {
+#         #             "id": user_obj.id,
+#         #             "name": user_obj.email.split("@")[0],
+#         #             "email": user_obj.email,
+#         #             "full_name": user_obj.email,
+#         #             "is_unknown": False
+#         #         }
+
+#         #     except User.DoesNotExist:
+#         #         identifier = str(user_identifier)
+#         #         return {
+#         #             "id": None,
+#         #             "name": identifier.split("@")[0] if "@" in identifier else identifier,
+#         #             "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
+#         #             "full_name": identifier,
+#         #             "is_unknown": True
+#         #         }
+#         # def get_user_details(user_identifier):
+#         #     try:
+#         #         user_obj = None
+#         #         if isinstance(user_identifier, int) or (isinstance(user_identifier, str) and user_identifier.isdigit()):
+#         #             user_obj = User.objects.filter(id=int(user_identifier)).first()
+#         #         else:
+#         #             email = str(user_identifier).strip().strip('"\'')
+#         #             user_obj = User.objects.filter(email__iexact=email).first()
+
+#         #         if not user_obj:
+#         #             raise User.DoesNotExist
+
+#         #         firstname = getattr(user_obj, 'firstname', None) or getattr(user_obj, 'username', None) or ""
+#         #         lastname = getattr(user_obj, 'lastname', "")  # Safe fallback
+#         #         full_name = f"{firstname} {lastname}".strip() or user_obj.email.split("@")[0]
+
+#         #         return {
+#         #             "id": user_obj.id,
+#         #             "name": firstname or user_obj.email.split("@")[0],
+#         #             "email": user_obj.email,
+#         #             "full_name": full_name,
+#         #             "is_unknown": False
+#         #         }
+
+#         #     except User.DoesNotExist:
+#         #         identifier = str(user_identifier)
+#         #         return {
+#         #             "id": None,
+#         #             "name": identifier.split("@")[0] if "@" in identifier else identifier,
+#         #             "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
+#         #             "full_name": identifier,
+#         #             "is_unknown": True
+#         #         }
+#         #     except Exception as e:
+#         #         print(f"Error in get_user_details for {user_identifier}: {e}")
+#         #         return {
+#         #             "id": None,
+#         #             "name": str(user_identifier),
+#         #             "email": str(user_identifier) if "@" in str(user_identifier) else f"{user_identifier}@unknown.com",
+#         #             "full_name": str(user_identifier),
+#         #             "is_unknown": True
+#         # }
+#         def get_user_details(user_identifier):
+#             """Get user details from ID or email – safe for models without lastname"""
+#             try:
+#                 user_obj = None
+
+#                 if isinstance(user_identifier, int) or (isinstance(user_identifier, str) and user_identifier.isdigit()):
+#                     user_obj = User.objects.filter(id=int(user_identifier)).first()
+#                 else:
+#                     email = str(user_identifier).strip().strip('"\'')
+#                     user_obj = User.objects.filter(email__iexact=email).first()
+
+#                 if not user_obj:
+#                     raise User.DoesNotExist
+
+#                 # Safely get firstname (or fallback to username/email)
+#                 firstname = getattr(user_obj, 'firstname', None) or getattr(user_obj, 'username', None) or ""
+#                 # lastname may not exist — use safe getattr with empty fallback
+#                 lastname = getattr(user_obj, 'lastname', "")  
+#                 full_name = f"{firstname} {lastname}".strip()
+#                 if not full_name:
+#                     full_name = user_obj.email.split("@")[0]  # fallback to email prefix
+
+#                 return {
+#                     "id": user_obj.id,
+#                     "name": firstname or user_obj.email.split("@")[0],
+#                     "email": user_obj.email,
+#                     "full_name": full_name,
+#                     "is_unknown": False
+#                 }
+
+#             except User.DoesNotExist:
+#                 identifier = str(user_identifier)
+#                 return {
+#                     "id": None,
+#                     "name": identifier.split("@")[0] if "@" in identifier else identifier,
+#                     "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
+#                     "full_name": identifier,
+#                     "is_unknown": True
+#                 }
+#             except Exception as e:
+#                 print(f"Unexpected error in get_user_details for {user_identifier}: {e}")
+#                 identifier = str(user_identifier)
+#                 return {
+#                     "id": None,
+#                     "name": identifier.split("@")[0] if "@" in identifier else identifier,
+#                     "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
+#                     "full_name": identifier,
+#                     "is_unknown": True
+#                 }
+#         def get_group_details(group_id):
+#             try:
+#                 if isinstance(group_id, str) and group_id.isdigit():
+#                     group_id = int(group_id)
+                    
+#                 group = UsersGroup.objects.get(id=group_id)
+#                 return {
+#                     "id": group.id,
+#                     "name": group.name,
+#                     "description": group.description if hasattr(group, 'description') else ""
+#                 }
+#             except UsersGroup.DoesNotExist:
+#                 return {
+#                     "id": group_id,
+#                     "name": f"Group {group_id}",
+#                     "description": "Group not found",
+#                 }
+
+#         def parse_assigned_users(value):
+#             if not value:
+#                 return []
+#             try:
+#                 if isinstance(value, str):
+#                     cleaned_value = value.strip()
+#                     if not cleaned_value or cleaned_value == '[]':
+#                         return []
+#                     parsed = json.loads(cleaned_value)
+#                 else:
+#                     parsed = value
+                
+#                 if not isinstance(parsed, list):
+#                     return []
+                
+#                 result = []
+#                 for item in parsed:
+#                     if item is not None:
+#                         user_detail = get_user_details(item)
+#                         result.append(user_detail)
+#                 return result
+#             except json.JSONDecodeError as e:
+#                 print(f"JSON decode error for assigned_users: {value}, error: {e}")
+#                 result = []
+#                 if isinstance(value, str):
+#                     import re
+#                     emails = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', value)
+#                     for email in emails:
+#                         user_detail = get_user_details(email)
+#                         result.append(user_detail)
+                    
+#                     ids = re.findall(r'\b\d+\b', value)
+#                     for id_str in ids:
+#                         if id_str not in emails:
+#                             user_detail = get_user_details(int(id_str))
+#                             result.append(user_detail)
+#                 return result
+#             except Exception as e:
+#                 print(f"Error parsing assigned_users: {value}, error: {e}")
+#                 return []
+
+#         def parse_assigned_groups(value):
+#             if not value:
+#                 return []
+#             try:
+#                 if isinstance(value, str):
+#                     cleaned_value = value.strip()
+#                     if not cleaned_value or cleaned_value == '[]':
+#                         return []
+#                     parsed = json.loads(cleaned_value)
+#                 else:
+#                     parsed = value
+                
+#                 if not isinstance(parsed, list):
+#                     return []
+                
+#                 result = []
+#                 for item in parsed:
+#                     if item is not None:
+#                         group_detail = get_group_details(item)
+#                         result.append(group_detail)
+#                 return result
+#             except Exception as e:
+#                 print(f"Error parsing assigned_groups: {value}, error: {e}")
+#                 return []
+
+#         # Helper function to get tickets by status (same as before)
+#         def get_tickets_by_status(queryset, status_name):
+#             tickets = queryset.filter(status__field_name__iexact=status_name).distinct().order_by("-ticket_no")
+            
+#             tickets_data = []
+#             seen_ids = set()
+#             for ticket in tickets:
+#                 if ticket.id in seen_ids:
+#                     continue
+#                 seen_ids.add(ticket.id)
+                
+#                 # Parse assigned data
+#                 assigned_users = parse_assigned_users(ticket.assigned_users)
+#                 assigned_groups = parse_assigned_groups(ticket.assigned_groups)
+                
+#                 # Check if current user is in assigned_users
+#                 current_user_in_assigned = any(
+#                     user.get('id') == current_user_id or user.get('email') == current_user_email 
+#                     for user in assigned_users
+#                 )
+                
+#                 # If current user is not in assigned_users but we got this ticket through assignee filter,
+#                 # add current user to the assignees list for display
+#                 if not current_user_in_assigned and ticket.assignee == current_user_id:
+#                     current_user_detail = get_user_details(current_user_id)
+#                     if current_user_detail:
+#                         assigned_users.append(current_user_detail)
+                
+#                 # Get requested user details
+#                 requested_user_detail = None
+#                 if ticket.requested:
+#                     requested_user_detail = {
+#                         "id": ticket.requested.id,
+#                         "name": (
+#                             getattr(ticket.requested, 'name', None) or 
+#                             getattr(ticket.requested, 'firstname', None) or 
+#                             ticket.requested.email
+#                         ),
+#                         "email": ticket.requested.email
+#                     }
+                
+#                 tickets_data.append({
+#                     "id": ticket.id,
+#                     "ticket_no": ticket.ticket_no,
+#                     "title": ticket.title,
+#                     "description": ticket.description[:100] + "..." if len(ticket.description) > 100 else ticket.description,
+#                     "status": ticket.status.field_name if ticket.status else None,
+#                     "status_detail": {
+#                         "id": ticket.status.id if ticket.status else None,
+#                         "field_name": ticket.status.field_name if ticket.status else None,
+#                         "field_values": ticket.status.field_values if ticket.status else None
+#                     } if ticket.status else None,
+#                     "priority": ticket.priority.field_name if ticket.priority else None,
+#                     "priority_detail": {
+#                         "id": ticket.priority.id if ticket.priority else None,
+#                         "field_name": ticket.priority.field_name if ticket.priority else None,
+#                         "field_values": ticket.priority.field_values if ticket.priority else None
+#                     } if ticket.priority else None,
+#                     "category": ticket.category.category_name if ticket.category else None,
+#                     "category_detail": {
+#                         "id": ticket.category.id if ticket.category else None,
+#                         "category_name": ticket.category.category_name if ticket.category else None,
+#                     } if ticket.category else None,
+#                     "subcategory": ticket.subcategory.subcategory_name if ticket.subcategory else None,
+#                     "subcategory_detail": {
+#                         "id": ticket.subcategory.id if ticket.subcategory else None,
+#                         "subcategory_name": ticket.subcategory.subcategory_name if ticket.subcategory else None
+#                     } if ticket.subcategory else None,
+#                     "department": ticket.department.field_name if ticket.department else None,
+#                     "department_detail": {
+#                         "id": ticket.department.id if ticket.department else None,
+#                         "field_name": ticket.department.field_name if ticket.department else None
+#                     } if ticket.department else None,
+#                     "location": ticket.location.field_name if ticket.location else None,
+#                     "location_detail": {
+#                         "id": ticket.location.id if ticket.location else None,
+#                         "field_name": ticket.location.field_name if ticket.location else None
+#                     } if ticket.location else None,
+#                     "requested_by": ticket.requested.email if ticket.requested else None,
+#                     "requested_detail": requested_user_detail,
+#                     "assignees": assigned_users,  # Detailed user info
+#                     "assigned_users": assigned_users,  # Alias for assignees
+#                     "assigned_users_count": len(assigned_users),
+#                     "assigned_groups": assigned_groups,
+#                     "assigned_groups_count": len(assigned_groups),
+#                     "created_date": ticket.created_date,
+#                     "updated_date": getattr(ticket, 'updated_date', ticket.created_date),
+#                     "has_assignments": len(assigned_users) > 0 or len(assigned_groups) > 0,
+#                 })
+            
+#             return {
+#                 "count": len(tickets_data),
+#                 "tickets": tickets_data
+#             }
+
+#         # Get NEW tickets assigned to current user
+#         new_tickets = get_tickets_by_status(assigned_tickets_qs, 'New')
+        
+#         # Get SOLVED tickets assigned to current user
+#         solved_tickets = get_tickets_by_status(assigned_tickets_qs, 'Solved')
+        
+#         # Get CLOSED tickets assigned to current user
+#         closed_tickets = get_tickets_by_status(assigned_tickets_qs, 'Closed')
+        
+#         # Get CANCELLED tickets assigned to current user
+#         cancelled_tickets = get_tickets_by_status(assigned_tickets_qs, 'Cancelled')
+        
+#         # Total tickets assigned to current user
+#         total_assigned_tickets = assigned_tickets_qs.distinct().count()
+
+#         # Calculate statistics
+#         all_tickets = new_tickets["tickets"] + solved_tickets["tickets"] + closed_tickets["tickets"] + cancelled_tickets["tickets"]
+#         total_assigned_users = sum(len(ticket.get("assigned_users", [])) for ticket in all_tickets)
+#         total_assigned_groups = sum(len(ticket.get("assigned_groups", [])) for ticket in all_tickets)
+
+#         # Prepare response
+#         data = {
+#             "success": True,
+#             "user_email": user_email,
+#             "user_stats": {
+#                 "total_tickets": total_assigned_tickets,
+#                 "new_assigned": new_tickets["count"],
+#                 "new_assigned_tickets": new_tickets["tickets"],
+#                 "solved": solved_tickets["count"],
+#                 "solved_tickets": solved_tickets["tickets"],
+#                 "closed": closed_tickets["count"],
+#                 "closed_tickets": closed_tickets["tickets"],
+#                 "cancelled": cancelled_tickets["count"],
+#                 "cancelled_tickets": cancelled_tickets["tickets"],
+#                 "ticket_sources": {
+#                     "assigned_to_me": total_assigned_tickets,
+#                 },
+#                 "assignment_stats": {
+#                     "total_assigned_users": total_assigned_users,
+#                     "total_assigned_groups": total_assigned_groups,
+#                     "tickets_with_users": sum(1 for ticket in all_tickets if ticket.get("assigned_users_count", 0) > 0),
+#                     "tickets_with_groups": sum(1 for ticket in all_tickets if ticket.get("assigned_groups_count", 0) > 0),
+#                     "tickets_with_both": sum(1 for ticket in all_tickets if ticket.get("assigned_users_count", 0) > 0 and ticket.get("assigned_groups_count", 0) > 0),
+#                 }
+#             },
+#             "filters": {
+#                 "assignee_user": assignee_user,
+#                 "assignee_group": assignee_group,
+#                 "entity_id": entity_id,
+#                 "search": search if search else None,
+#                 "date_range": {
+#                     "start_date": start_date_str,
+#                     "end_date": end_date_str
+#                 } if start_date_str and end_date_str else None
+#             }
+#         }
+ 
+#         return Response(data, status=status.HTTP_200_OK)
 class TicketView(APIView):
     def get(self, request):
-        """Get user ticket stats with New, Solved, Closed, and Cancelled statuses"""
+        """Get user ticket stats with New, Solved, Closed, Cancelled, Clarification Required, and Clarification Applied statuses"""
         # Get query parameters
         start_date_str = request.query_params.get('start_date')
         end_date_str = request.query_params.get('end_date')
@@ -3498,7 +4397,7 @@ class TicketView(APIView):
                     try:
                         # Filter users by IDs
                         direct_users = User.objects.filter(id__in=assigned_user_ids).values(
-                            'id', 'firstname', 'lastname', 'email', 'username'
+                            'id', 'first_name', 'last_name', 'email', 'username'
                         )
                         for user_data in direct_users:
                             user_id = user_data['id']
@@ -3506,10 +4405,10 @@ class TicketView(APIView):
                                 seen_assignee_ids.add(user_id)
                                 assignees_detail.append({
                                     "id": user_id,
-                                    "firstname": user_data['firstname'] or user_data['username'] or "Unknown",
-                                    "lastname": user_data['lastname'] or "",
+                                    "firstname": user_data['first_name'] or user_data['username'] or "Unknown",
+                                    "lastname": user_data['last_name'] or "",
                                     "email": user_data['email'],
-                                    "name": f"{user_data['firstname']} {user_data['lastname']}".strip() or user_data['username'] or "Unknown"
+                                    "name": f"{user_data['first_name']} {user_data['last_name']}".strip() or user_data['username'] or "Unknown"
                                 })
                     except Exception as e:
                         # If IDs are invalid or emails, handle accordingly
@@ -3527,10 +4426,10 @@ class TicketView(APIView):
                                     seen_assignee_ids.add(member_id)
                                     assignees_detail.append({
                                         "id": member_id,
-                                        "firstname": getattr(member, 'firstname', None) or getattr(member, 'name', None) or getattr(member, 'username', "Unknown"),
-                                        "lastname": getattr(member, 'lastname', "") or "",
+                                        "firstname": getattr(member, 'first_name', None) or getattr(member, 'name', None) or getattr(member, 'username', "Unknown"),
+                                        "lastname": getattr(member, 'last_name', "") or "",
                                         "email": member.email,
-                                        "name": f"{getattr(member, 'firstname', '')} {getattr(member, 'lastname', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
+                                        "name": f"{getattr(member, 'first_name', '')} {getattr(member, 'last_name', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
                                     })
                         except UsersGroup.DoesNotExist:
                             pass
@@ -3558,10 +4457,10 @@ class TicketView(APIView):
                                 "members": [  # List of member dicts
                                     {
                                         "id": m.id,
-                                        "firstname": getattr(m, 'firstname', None) or getattr(m, 'name', None) or getattr(m, 'username', "Unknown"),
-                                        "lastname": getattr(m, 'lastname', "") or "",
+                                        "firstname": getattr(m, 'first_name', None) or getattr(m, 'name', None) or getattr(m, 'username', "Unknown"),
+                                        "lastname": getattr(m, 'last_name', "") or "",
                                         "email": m.email,
-                                        "name": f"{getattr(m, 'firstname', '')} {getattr(m, 'lastname', '')}".strip() or getattr(m, 'username', "Unknown") or getattr(m, 'name', "Unknown")
+                                        "name": f"{getattr(m, 'first_name', '')} {getattr(m, 'last_name', '')}".strip() or getattr(m, 'username', "Unknown") or getattr(m, 'name', "Unknown")
                                     } for m in group_members
                                 ],
                                 "members_count": len(group_members)
@@ -3611,7 +4510,7 @@ class TicketView(APIView):
                         "id": ticket.requested.id if ticket.requested else None,
                         "name": (
                             getattr(ticket.requested, 'name', None) or 
-                            getattr(ticket.requested, 'firstname', None) or 
+                            getattr(ticket.requested, 'first_name', None) or 
                             ticket.requested.email
                         ) if ticket.requested else None,
                         "email": ticket.requested.email if ticket.requested else None
@@ -3644,6 +4543,12 @@ class TicketView(APIView):
         # Get CANCELLED requested tickets (user requested)
         cancelled_tickets = get_tickets_by_status(user_requested_qs, 'Cancelled')
         
+        # Get CLARIFICATION REQUIRED requested tickets (user requested)
+        clarification_required_tickets = get_tickets_by_status(user_requested_qs, 'Clarification Required')
+        
+        # Get CLARIFICATION APPLIED requested tickets (user requested)
+        clarification_applied_tickets = get_tickets_by_status(user_requested_qs, 'Clarification Applied')
+        
         # Total user requested tickets
         total_user_tickets = user_requested_qs.distinct().count()
 
@@ -3661,6 +4566,10 @@ class TicketView(APIView):
                 "closed_tickets": closed_tickets["tickets"],
                 "cancelled": cancelled_tickets["count"],
                 "cancelled_tickets": cancelled_tickets["tickets"],
+                "clarification_required": clarification_required_tickets["count"],
+                "clarification_required_tickets": clarification_required_tickets["tickets"],
+                "clarification_applied": clarification_applied_tickets["count"],
+                "clarification_applied_tickets": clarification_applied_tickets["tickets"],
                 "ticket_sources": {
                     "requested_by_me": user_requested_qs.distinct().count(),
                 }
@@ -3760,132 +4669,44 @@ class ApproverTicketView(APIView):
             search_filter = Q(title__icontains=search) | Q(description__icontains=search)
             assigned_tickets_qs = assigned_tickets_qs.filter(search_filter)
 
-        # def get_user_details(user_identifier):
-        #     try:
-        #         user_obj = None
-
-        #         # Case 1: ID
-        #         if isinstance(user_identifier, int) or (
-        #             isinstance(user_identifier, str) and user_identifier.isdigit()
-        #         ):
-        #             user_obj = User.objects.filter(id=int(user_identifier)).first()
-
-        #         # Case 2: Email
-        #         else:
-        #             email = str(user_identifier).strip().strip('"\'')
-        #             user_obj = User.objects.filter(email__iexact=email).first()
-
-        #         if not user_obj:
-        #             raise User.DoesNotExist
-
-        #         return {
-        #             "id": user_obj.id,
-        #             "name": user_obj.email.split("@")[0],
-        #             "email": user_obj.email,
-        #             "full_name": user_obj.email,
-        #             "is_unknown": False
-        #         }
-
-        #     except User.DoesNotExist:
-        #         identifier = str(user_identifier)
-        #         return {
-        #             "id": None,
-        #             "name": identifier.split("@")[0] if "@" in identifier else identifier,
-        #             "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
-        #             "full_name": identifier,
-        #             "is_unknown": True
-        #         }
-        # def get_user_details(user_identifier):
-        #     try:
-        #         user_obj = None
-        #         if isinstance(user_identifier, int) or (isinstance(user_identifier, str) and user_identifier.isdigit()):
-        #             user_obj = User.objects.filter(id=int(user_identifier)).first()
-        #         else:
-        #             email = str(user_identifier).strip().strip('"\'')
-        #             user_obj = User.objects.filter(email__iexact=email).first()
-
-        #         if not user_obj:
-        #             raise User.DoesNotExist
-
-        #         firstname = getattr(user_obj, 'firstname', None) or getattr(user_obj, 'username', None) or ""
-        #         lastname = getattr(user_obj, 'lastname', "")  # Safe fallback
-        #         full_name = f"{firstname} {lastname}".strip() or user_obj.email.split("@")[0]
-
-        #         return {
-        #             "id": user_obj.id,
-        #             "name": firstname or user_obj.email.split("@")[0],
-        #             "email": user_obj.email,
-        #             "full_name": full_name,
-        #             "is_unknown": False
-        #         }
-
-        #     except User.DoesNotExist:
-        #         identifier = str(user_identifier)
-        #         return {
-        #             "id": None,
-        #             "name": identifier.split("@")[0] if "@" in identifier else identifier,
-        #             "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
-        #             "full_name": identifier,
-        #             "is_unknown": True
-        #         }
-        #     except Exception as e:
-        #         print(f"Error in get_user_details for {user_identifier}: {e}")
-        #         return {
-        #             "id": None,
-        #             "name": str(user_identifier),
-        #             "email": str(user_identifier) if "@" in str(user_identifier) else f"{user_identifier}@unknown.com",
-        #             "full_name": str(user_identifier),
-        #             "is_unknown": True
-        # }
+        # Helper functions (keep the same as before)
         def get_user_details(user_identifier):
-            """Get user details from ID or email – safe for models without lastname"""
+            """Get user details from ID or email"""
             try:
                 user_obj = None
-
+                
                 if isinstance(user_identifier, int) or (isinstance(user_identifier, str) and user_identifier.isdigit()):
-                    user_obj = User.objects.filter(id=int(user_identifier)).first()
+                    user_id = int(user_identifier)
+                    user_obj = User.objects.get(id=user_id)
                 else:
                     email = str(user_identifier).strip().strip('"\'')
-                    user_obj = User.objects.filter(email__iexact=email).first()
-
-                if not user_obj:
-                    raise User.DoesNotExist
-
-                # Safely get firstname (or fallback to username/email)
-                firstname = getattr(user_obj, 'firstname', None) or getattr(user_obj, 'username', None) or ""
-                # lastname may not exist — use safe getattr with empty fallback
-                lastname = getattr(user_obj, 'lastname', "")  
-                full_name = f"{firstname} {lastname}".strip()
-                if not full_name:
-                    full_name = user_obj.email.split("@")[0]  # fallback to email prefix
-
+                    user_obj = User.objects.get(email=email)
+                
                 return {
                     "id": user_obj.id,
-                    "name": firstname or user_obj.email.split("@")[0],
+                    "name": getattr(user_obj, 'first_name', None) or getattr(user_obj, 'name', None) or user_obj.email.split('@')[0],
                     "email": user_obj.email,
-                    "full_name": full_name,
-                    "is_unknown": False
+                    "full_name": f"{user_obj.first_name or ''} {user_obj.last_name or ''}".strip() or user_obj.email.split('@')[0]
                 }
-
             except User.DoesNotExist:
-                identifier = str(user_identifier)
+                identifier_str = str(user_identifier)
                 return {
                     "id": None,
-                    "name": identifier.split("@")[0] if "@" in identifier else identifier,
-                    "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
-                    "full_name": identifier,
+                    "name": identifier_str if '@' in identifier_str else f"User {identifier_str}",
+                    "email": identifier_str if '@' in identifier_str else f"user{identifier_str}@unknown.com",
+                    "full_name": identifier_str if '@' in identifier_str else f"User {identifier_str}",
                     "is_unknown": True
                 }
             except Exception as e:
-                print(f"Unexpected error in get_user_details for {user_identifier}: {e}")
-                identifier = str(user_identifier)
+                print(f"Error getting user details for {user_identifier}: {e}")
                 return {
                     "id": None,
-                    "name": identifier.split("@")[0] if "@" in identifier else identifier,
-                    "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
-                    "full_name": identifier,
+                    "name": str(user_identifier),
+                    "email": str(user_identifier) if '@' in str(user_identifier) else f"{user_identifier}@unknown.com",
+                    "full_name": str(user_identifier),
                     "is_unknown": True
                 }
+
         def get_group_details(group_id):
             try:
                 if isinstance(group_id, str) and group_id.isdigit():
@@ -3902,6 +4723,7 @@ class ApproverTicketView(APIView):
                     "id": group_id,
                     "name": f"Group {group_id}",
                     "description": "Group not found",
+                    "is_unknown": True
                 }
 
         def parse_assigned_users(value):
@@ -4005,7 +4827,7 @@ class ApproverTicketView(APIView):
                         "id": ticket.requested.id,
                         "name": (
                             getattr(ticket.requested, 'name', None) or 
-                            getattr(ticket.requested, 'firstname', None) or 
+                            getattr(ticket.requested, 'first_name', None) or 
                             ticket.requested.email
                         ),
                         "email": ticket.requested.email
@@ -4077,11 +4899,17 @@ class ApproverTicketView(APIView):
         # Get CANCELLED tickets assigned to current user
         cancelled_tickets = get_tickets_by_status(assigned_tickets_qs, 'Cancelled')
         
+        # Get CLARIFICATION REQUIRED tickets assigned to current user
+        clarification_required_tickets = get_tickets_by_status(assigned_tickets_qs, 'Clarification Required')
+        
+        # Get CLARIFICATION APPLIED tickets assigned to current user
+        clarification_applied_tickets = get_tickets_by_status(assigned_tickets_qs, 'Clarification Applied')
+        
         # Total tickets assigned to current user
         total_assigned_tickets = assigned_tickets_qs.distinct().count()
 
         # Calculate statistics
-        all_tickets = new_tickets["tickets"] + solved_tickets["tickets"] + closed_tickets["tickets"] + cancelled_tickets["tickets"]
+        all_tickets = new_tickets["tickets"] + solved_tickets["tickets"] + closed_tickets["tickets"] + cancelled_tickets["tickets"] + clarification_required_tickets["tickets"] + clarification_applied_tickets["tickets"]
         total_assigned_users = sum(len(ticket.get("assigned_users", [])) for ticket in all_tickets)
         total_assigned_groups = sum(len(ticket.get("assigned_groups", [])) for ticket in all_tickets)
 
@@ -4099,6 +4927,10 @@ class ApproverTicketView(APIView):
                 "closed_tickets": closed_tickets["tickets"],
                 "cancelled": cancelled_tickets["count"],
                 "cancelled_tickets": cancelled_tickets["tickets"],
+                "clarification_required": clarification_required_tickets["count"],
+                "clarification_required_tickets": clarification_required_tickets["tickets"],
+                "clarification_applied": clarification_applied_tickets["count"],
+                "clarification_applied_tickets": clarification_applied_tickets["tickets"],
                 "ticket_sources": {
                     "assigned_to_me": total_assigned_tickets,
                 },
@@ -4122,8 +4954,12 @@ class ApproverTicketView(APIView):
             }
         }
  
-        return Response(data, status=status.HTTP_200_OK)
- 
+        return Response(data, status=status.HTTP_200_OK)    
+
+
+
+
+
 
 class AdminTicketView(APIView):
     def get(self, request):
@@ -6722,13 +7558,13 @@ class TicketActionView(APIView):
                             "message": "Ticket approved and CLOSED successfully!",
                             "final_action": True
                         }, status=200)
-                # Not final → escalate with bonus time
-                escalate_to_next_approver(
-                    ticket,
-                    current_log.current_level,
-                    reason="USER_APPROVED",
-                    bonus_seconds=saved_seconds
-                )
+                # # Not final → escalate with bonus time
+                # escalate_to_next_approver(
+                #     ticket,
+                #     current_log.current_level,
+                #     reason="USER_APPROVED",
+                #     bonus_seconds=saved_seconds
+                # )
                 # Update status to Pending (still needs more approvals)
                 ticket.status = self._get_master_status("Approved") or self._get_master_status("Pending")
                 ticket.save()
@@ -6840,12 +7676,12 @@ class TicketActionView(APIView):
                 current_log.save()
 
                 # Restart escalation timer for new assignee
-                if current_log.sla_end_time:
-                    delay = max(1, int((current_log.sla_end_time - timezone.now()).total_seconds()))
-                    handle_sla_escalation.apply_async(
-                        args=[ticket.id, current_log.current_level],
-                        countdown=delay
-                    )
+                # if current_log.sla_end_time:
+                #     delay = max(1, int((current_log.sla_end_time - timezone.now()).total_seconds()))
+                #     handle_sla_escalation.apply_async(
+                #         args=[ticket.id, current_log.current_level],
+                #         countdown=delay
+                #     )
 
                 ticket.status = self._get_master_status("Pending")
                 ticket.save()
@@ -6925,12 +7761,12 @@ class TicketActionView(APIView):
                 new_sla_end_time = now + timedelta(seconds=max(0, frozen_time_left))
                 current_log.sla_end_time = new_sla_end_time
                 current_log.save()
-                if current_log.sla_end_time:
-                    delay = max(1, int((current_log.sla_end_time - timezone.now()).total_seconds()))
-                    handle_sla_escalation.apply_async(
-                        args=[ticket.id, current_log.current_level],
-                        countdown=delay
-                    )
+                # if current_log.sla_end_time:
+                #     delay = max(1, int((current_log.sla_end_time - timezone.now()).total_seconds()))
+                #     handle_sla_escalation.apply_async(
+                #         args=[ticket.id, current_log.current_level],
+                #         countdown=delay
+                #     )
                 # Update ticket status
                 pending_status = self._get_master_status("Pending")
                 if pending_status:
@@ -7696,94 +8532,194 @@ class CEODashboardAPIView(APIView):
 
 
 
-class CeoApprovalDashboardApiView(APIView):
-    """
-    API View for managing Holidays (List, Create, Update, Delete)
-    """
-    permission_classes = [AllowAny]
+# class CeoApprovalDashboardApiView(APIView):
+#     """
+#     API View for managing Holidays (List, Create, Update, Delete)
+#     """
+#     permission_classes = [AllowAny]
 
-    def get(self, request, pk=None):
-        data =  CeoApprovalDashboard(request=None)
-        return Response(data)
+#     def get(self, request, pk=None):
+#         data =  CeoApprovalDashboard(request=None)
+#         return Response(data)
     
-class HODApprovalDashboardAPI(APIView):
-    """
-    API View for managing Holidays (List, Create, Update, Delete)
-    """
-    permission_classes = [AllowAny]
+# class HODApprovalDashboardAPI(APIView):
+#     """
+#     API View for managing Holidays (List, Create, Update, Delete)
+#     """
+#     permission_classes = [AllowAny]
 
-    def get(self, request, pk=None):
-        data =  HODApprovalDashboardAPI(request=None)
-        return Response(data)
+#     def get(self, request, pk=None):
+#         data =  HODApprovalDashboardAPI(request=None)
+#         return Response(data)
     
+# class MessageListCreateView(APIView):
+#     queryset = Message.objects.all()
+#     serializer_class = MessageSerializer
+#     permission_classes = [IsAuthenticatedOrReadOnly]
+ 
+#     def get_queryset(self):
+#         queryset = self.queryset
+#         # Existing: Filter by userid
+#         userid_filter = self.request.query_params.get('userid')
+#         if userid_filter:
+#             queryset = queryset.filter(userid=userid_filter)
+#         # New: Filter by parent (replies to a specific message)
+#         parent_filter = self.request.query_params.get('parent')
+#         if parent_filter:
+#             queryset = queryset.filter(parent_id=parent_filter)
+#         # Optional: Or show top-level only (no parent)
+#         # if self.request.query_params.get('top_level'):
+#         #     queryset = queryset.filter(parent__isnull=True)
+#         return queryset
+ 
+#     def get(self, request):
+#         messages = self.get_queryset()
+#         serializer = self.serializer_class(messages, many=True)
+#         return Response(serializer.data, status=status.HTTP_200_OK)
+ 
+#     def post(self, request):
+#         data = request.data.copy()
+#         # Auto-set userid to current user if not provided
+#         if not data.get('userid'):
+#             data['userid'] = request.user.id
+#         # Ensure the parent exists, if provided
+#         if data.get('parent'):
+#             try:
+#                 parent_message = Message.objects.get(pk=data['parent'])
+#             except Message.DoesNotExist:
+#                 return Response({"parent": ["Invalid pk \"{}\" - object does not exist.".format(data['parent'])]},
+#                                 status=status.HTTP_400_BAD_REQUEST)
+#         # parent is optional—serializer handles it
+#         serializer = self.serializer_class(data=data)
+#         if serializer.is_valid():
+#             serializer.save()
+#             return Response(serializer.data, status=status.HTTP_201_CREATED)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+ 
+# class MessageDetailView(APIView):
+#     queryset = Message.objects.all()
+#     serializer_class = MessageSerializer
+#     permission_classes = [IsAuthenticatedOrReadOnly]
+ 
+#     def get_object(self):
+#         pk = self.kwargs.get('pk')
+#         return get_object_or_404(self.queryset, pk=pk)
+ 
+#     def get(self, request, pk):
+#         message = self.get_object()
+#         # Optional: Include replies in response for easy threading
+#         replies = Message.objects.filter(parent=message).order_by('-createdon')
+#         reply_serializer = self.serializer_class(replies, many=True)
+#         data = self.serializer_class(message).data
+#         data['replies'] = reply_serializer.data  # Nested replies (flat list)
+#         return Response(data, status=status.HTTP_200_OK)
+ 
+#     def put(self, request, pk):
+#         message = self.get_object()
+#         data = request.data.copy()
+#         data.pop('userid', None)  # Prevent userid change
+#         data.pop('parent', None)  # Prevent changing parent (replies are immutable)
+#         serializer = self.serializer_class(message, data=data, partial=False)
+#         if serializer.is_valid():
+#             serializer.save()
+#             return Response(serializer.data, status=status.HTTP_200_OK)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+ 
+#     def patch(self, request, pk):
+#         message = self.get_object()
+#         data = request.data.copy()
+#         data.pop('userid', None)
+#         data.pop('parent', None)
+#         serializer = self.serializer_class(message, data=data, partial=True)
+#         if serializer.is_valid():
+#             serializer.save()
+#             return Response(serializer.data, status=status.HTTP_200_OK)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+ 
+#     def delete(self, request, pk):
+#         message = self.get_object()
+#         # Optional: Cascade delete replies too? (Model handles via on_delete)
+#         message.delete()
+#         return Response(status=status.HTTP_204_NO_CONTENT)
+ 
 class MessageListCreateView(APIView):
-    queryset = Message.objects.all()
     serializer_class = MessageSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
  
     def get_queryset(self):
-        queryset = self.queryset
-        # Existing: Filter by userid
-        userid_filter = self.request.query_params.get('userid')
-        if userid_filter:
-            queryset = queryset.filter(userid=userid_filter)
-        # New: Filter by parent (replies to a specific message)
-        parent_filter = self.request.query_params.get('parent')
-        if parent_filter:
-            queryset = queryset.filter(parent_id=parent_filter)
-        # Optional: Or show top-level only (no parent)
-        # if self.request.query_params.get('top_level'):
-        #     queryset = queryset.filter(parent__isnull=True)
+        queryset = Message.objects.all()
+        ticket_no_filter = self.request.query_params.get('ticket_no')
+        if ticket_no_filter:
+            try:
+                ticket = CreateTicket.objects.get(pk=ticket_no_filter)
+                # Get all involved users for this ticket: requester + assignees + group members
+                involved_users = set([ticket.requested.id] if ticket.requested else [])
+                # Add direct assignees
+                if hasattr(ticket, 'assigned_users') and ticket.assigned_users:
+                    for user_id in ticket.assigned_users:
+                        if isinstance(user_id, int):
+                            involved_users.add(user_id)
+                        elif isinstance(user_id, str) and user_id.isdigit():
+                            involved_users.add(int(user_id))
+                # Add group members
+                if hasattr(ticket, 'assigned_groups') and ticket.assigned_groups:
+                    for group_id in ticket.assigned_groups:
+                        if isinstance(group_id, int):
+                            try:
+                                group = UsersGroup.objects.get(id=group_id)
+                                for member in group.get_users():
+                                    involved_users.add(member.id)
+                            except UsersGroup.DoesNotExist:
+                                pass
+                # Filter messages involving any of these users or current user (admin)
+                current_user_id = self.request.user.id
+                involved_users.add(current_user_id)
+                queryset = queryset.filter(
+                    Q(ticket_no=ticket) & (
+                        Q(sender_id__in=involved_users) | Q(receiver_id__in=involved_users)
+                    )
+                ).order_by('createdon')  # Chronological for chat
+            except CreateTicket.DoesNotExist:
+                queryset = queryset.none()
         return queryset
  
     def get(self, request):
         messages = self.get_queryset()
-        serializer = self.serializer_class(messages, many=True)
+        serializer = self.serializer_class(messages, many=True, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
  
     def post(self, request):
-        data = request.data.copy()
-        # Auto-set userid to current user if not provided
-        if not data.get('userid'):
-            data['userid'] = request.user.id
-        # Ensure the parent exists, if provided
-        if data.get('parent'):
-            try:
-                parent_message = Message.objects.get(pk=data['parent'])
-            except Message.DoesNotExist:
-                return Response({"parent": ["Invalid pk \"{}\" - object does not exist.".format(data['parent'])]},
-                                status=status.HTTP_400_BAD_REQUEST)
-        # parent is optional—serializer handles it
-        serializer = self.serializer_class(data=data)
+        # For admin, allow sending to single receiver; frontend handles multiples
+        serializer = self.serializer_class(data=request.data, context={'request': request})
         if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            # Auto-set sender to current user (admin) if not provided
+            if not request.data.get('sender'):
+                serializer.validated_data['sender'] = request.user
+            message = serializer.save()
+            # Serialize with context for potential encryption handling
+            return Response(self.serializer_class(message, context={'request': request}).data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
  
+ 
+# Remove legacy UserMessagesView or update if needed; assuming it's not used for admin
+# Cleaned up: Removed userid/parent references
+
 class MessageDetailView(APIView):
-    queryset = Message.objects.all()
     serializer_class = MessageSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
  
     def get_object(self):
         pk = self.kwargs.get('pk')
-        return get_object_or_404(self.queryset, pk=pk)
+        return get_object_or_404(Message, pk=pk)
  
     def get(self, request, pk):
         message = self.get_object()
-        # Optional: Include replies in response for easy threading
-        replies = Message.objects.filter(parent=message).order_by('-createdon')
-        reply_serializer = self.serializer_class(replies, many=True)
-        data = self.serializer_class(message).data
-        data['replies'] = reply_serializer.data  # Nested replies (flat list)
-        return Response(data, status=status.HTTP_200_OK)
+        serializer = self.serializer_class(message, context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
  
     def put(self, request, pk):
         message = self.get_object()
-        data = request.data.copy()
-        data.pop('userid', None)  # Prevent userid change
-        data.pop('parent', None)  # Prevent changing parent (replies are immutable)
-        serializer = self.serializer_class(message, data=data, partial=False)
+        serializer = self.serializer_class(message, data=request.data, partial=False, context={'request': request})
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -7791,10 +8727,7 @@ class MessageDetailView(APIView):
  
     def patch(self, request, pk):
         message = self.get_object()
-        data = request.data.copy()
-        data.pop('userid', None)
-        data.pop('parent', None)
-        serializer = self.serializer_class(message, data=data, partial=True)
+        serializer = self.serializer_class(message, data=request.data, partial=True, context={'request': request})
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -7802,11 +8735,10 @@ class MessageDetailView(APIView):
  
     def delete(self, request, pk):
         message = self.get_object()
-        # Optional: Cascade delete replies too? (Model handles via on_delete)
         message.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
- 
- 
+
+
 class UserMessagesView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
  
@@ -7875,4 +8807,171 @@ class PlatformAPIView(APIView):
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-
+class TicketSLAsWithNestedView(APIView):
+    """
+    Separate API: GET /api/tickets/slas-nested/
+    Fetches SLAs for entity_id, grouped by category (category_name shown only once).
+    Response: List of categories (with category_name once), each with subcategories and nested SLAs (no repetition).
+    """
+    permission_classes = [AllowAny]
+ 
+    def get(self, request, *args, **kwargs):
+        entity_id = request.query_params.get("entity_id")
+        if not entity_id:
+            return Response({"error": "entity_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+ 
+        try:
+            entity_id = int(entity_id)
+            entity = Entity.objects.get(id=entity_id)
+        except (ValueError, Entity.DoesNotExist):
+            return Response({"error": "Invalid entity_id"}, status=status.HTTP_400_BAD_REQUEST)
+ 
+        # Fetch unique categories from SLAs for this entity (to avoid repetition)
+        # Use JSONField lookup for entity_ids containing the entity_id
+        slas = TicketSLA.objects.filter(
+            entity_ids__contains=[entity_id]
+        ).select_related('category').order_by('category_id', '-id')
+        categories = set(sla.category for sla in slas if sla.category)  # Unique categories
+ 
+        response_data = []
+ 
+        for category in categories:
+            # Full category data (category_name shown only once)
+            cat_serializer = TicketCategorySerializer(category)
+            category_data = cat_serializer.data
+            category_data['entity_name'] = entity.name
+ 
+            # Fetch subcategories for this category
+            subcategories = TicketSubcategory.objects.filter(category=category).order_by('subcategory_name')
+            subcats_data = []
+ 
+            for subcat in subcategories:
+                # Fetch SLAs for this subcategory
+                # Use JSONField lookups for entity_ids and subcategory_ids
+                subcategory_slas = TicketSLA.objects.filter(
+                    entity_ids__contains=[entity_id],
+                    category=category,
+                    subcategory_ids__contains=[subcat.id]
+                ).order_by('-id')
+ 
+                # Full subcategory data
+                subcat_serializer = TicketSubcategorySerializer(subcat)
+                subcat_data = subcat_serializer.data
+ 
+                # Nest SLAs under subcategory (multiple if exist, no repetition)
+                slas_list = []
+                for sub_sla in subcategory_slas:
+                    sla_serializer = TicketSLASerializer(sub_sla)
+                    slas_list.append(sla_serializer.data)
+ 
+                subcat_data['slas'] = slas_list  # List of SLAs (empty if none)
+ 
+                subcats_data.append(subcat_data)
+ 
+            # Attach subcategories to category (no repeat of category_name)
+            category_data['subcategories'] = subcats_data
+ 
+            response_data.append(category_data)
+ 
+        return Response(response_data, status=status.HTTP_200_OK)
+class TicketSubcategoryRetrieveUpdateView(APIView):
+    # permission_classes = [IsAuthenticated]  # Requires authentication for all operations
+    permission_classes = [AllowAny]
+    def get_object(self, pk):
+        try:
+            return TicketSubcategory.objects.get(pk=pk)
+        except TicketSubcategory.DoesNotExist:
+            return None
+ 
+    def get(self, request, pk, *args, **kwargs):
+        # GET single ticket subcategory
+        instance = self.get_object(pk)
+        if not instance:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = TicketSubcategorySerializer(instance)
+        return Response(serializer.data)
+ 
+    def put(self, request, pk, *args, **kwargs):
+        # PUT update ticket subcategory
+        instance = self.get_object(pk)
+        if not instance:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = TicketSubcategorySerializer(instance, data=request.data, partial=False)
+        if serializer.is_valid():
+            serializer.save(
+                updated_date=timezone.now(),
+                updated_by=request.user.username if request.user.is_authenticated else None
+            )
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+   
+ 
+ 
+ 
+def is_privileged(user):
+    return getattr(user, "is_superuser", False) or getattr(user, "is_staff", False) or getattr(user, "is_hod", False)
+ 
+ 
+# class TicketSLAsWithNestedView(APIView):
+#     """
+#     Separate API: GET /api/tickets/slas-nested/
+#     Fetches SLAs for entity_id, grouped by category (category_name shown only once).
+#     Response: List of categories (with category_name once), each with subcategories and nested SLAs (no repetition).
+#     """
+#     permission_classes = [AllowAny]
+ 
+#     def get(self, request, *args, **kwargs):
+#         entity_id = request.query_params.get("entity_id")
+#         if not entity_id:
+#             return Response({"error": "entity_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+ 
+#         try:
+#             entity_id = int(entity_id)
+#             entity = Entity.objects.get(id=entity_id)
+#         except (ValueError, Entity.DoesNotExist):
+#             return Response({"error": "Invalid entity_id"}, status=status.HTTP_400_BAD_REQUEST)
+ 
+#         # Fetch unique categories from SLAs for this entity (to avoid repetition)
+#         slas = TicketSLA.objects.filter(entity_id=entity_id).select_related('category').order_by('category_id', '-id')
+#         categories = set(sla.category for sla in slas if sla.category)  # Unique categories
+ 
+#         response_data = []
+ 
+#         for category in categories:
+#             # Full category data (category_name shown only once)
+#             cat_serializer = TicketCategorySerializer(category)
+#             category_data = cat_serializer.data
+#             category_data['entity_name'] = entity.name
+ 
+#             # Fetch subcategories for this category
+#             subcategories = TicketSubcategory.objects.filter(category=category).order_by('subcategory_name')
+#             subcats_data = []
+ 
+#             for subcat in subcategories:
+#                 # Fetch SLAs for this subcategory
+#                 subcategory_slas = TicketSLA.objects.filter(
+#                     entity_id=entity_id,
+#                     category=category,
+#                     subcategory=subcat
+#                 ).order_by('-id')
+ 
+#                 # Full subcategory data
+#                 subcat_serializer = TicketSubcategorySerializer(subcat)
+#                 subcat_data = subcat_serializer.data
+ 
+#                 # Nest SLAs under subcategory (multiple if exist, no repetition)
+#                 slas_list = []
+#                 for sub_sla in subcategory_slas:
+#                     sla_serializer = TicketSLASerializer(sub_sla)
+#                     slas_list.append(sla_serializer.data)
+ 
+#                 subcat_data['slas'] = slas_list  # List of SLAs (empty if none)
+ 
+#                 subcats_data.append(subcat_data)
+ 
+#             # Attach subcategories to category (no repeat of category_name)
+#             category_data['subcategories'] = subcats_data
+ 
+#             response_data.append(category_data)
+ 
+#         return Response(response_data, status=status.HTTP_200_OK)

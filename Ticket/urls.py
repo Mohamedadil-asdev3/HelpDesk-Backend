@@ -17,7 +17,8 @@ from .views import (
     WatcherUserListView,HolidayAPIView,UpcomingHolidayAPIView,
     TicketView,HodUserAPIView,RoleAPIView,OverallStatusView,UserStatusView,TicketActionView,
     WatcherStatusView,UserRoleMappingAPIView,CEODashboardAPIView,MessageListCreateView,
-    MessageDetailView,UserMessagesView,PlatformAPIView,ApproverTicketView,AdminTicketView,DeleteTicketDocumentView
+    MessageDetailView,UserMessagesView,PlatformAPIView,ApproverTicketView,AdminTicketView,
+    DeleteTicketDocumentView, TicketSLAsWithNestedView
     # HodUserAPIView
     
 )
@@ -57,7 +58,8 @@ urlpatterns = [
     path('holidays/upcoming/', UpcomingHolidayAPIView.as_view(), name='holiday-upcoming'),
     path('roles/', RoleAPIView.as_view(), name='role-list-create'),
     path('roles/<int:pk>/', RoleAPIView.as_view(), name='role-update-delete'),
-
+    path('categories-full/', TicketSLAsWithNestedView.as_view(), name='ticket-categories-full'),
+ 
     path('ticket/count/',TicketView.as_view(), name='ticket'),
     path('approver/count/',ApproverTicketView.as_view(), name='approver-ticket'),
     path('admin/count/',AdminTicketView.as_view(), name='admin-ticketview'),
