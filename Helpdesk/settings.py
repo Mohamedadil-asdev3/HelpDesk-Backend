@@ -95,7 +95,7 @@ WSGI_APPLICATION = 'Helpdesk.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'helpdesk-new-1',
+        'NAME': 'helpdesk-new-2',
         'USER': 'root',
         'PASSWORD': 'Stemz@123',
         'HOST': '127.0.0.1',  

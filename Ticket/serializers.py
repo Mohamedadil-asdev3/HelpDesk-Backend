@@ -2495,8 +2495,8 @@ class CreateTicketSerializer(serializers.ModelSerializer):
                 return {'name': email, 'email': email}
        
         name = (getattr(user, 'name', None) or
-                getattr(user, 'first_name', '') + ' ' + getattr(user, 'last_name', '')).strip() or user.username or user.email
-        firstname = getattr(user, 'first_name', '') or ''
+                getattr(user, 'firstname', '') + ' ' + getattr(user, 'last_name', '')).strip() or user.username or user.email
+        firstname = getattr(user, 'firstname', '') or ''
         lastname = getattr(user, 'last_name', '') or ''
         details = {'name': name, 'email': email, 'firstname': firstname, 'lastname': lastname}
         if include_id:
