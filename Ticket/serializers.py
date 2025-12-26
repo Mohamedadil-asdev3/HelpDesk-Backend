@@ -609,7 +609,7 @@ class TicketSLASerializer(serializers.ModelSerializer):
         if obj.assigned_user_id:
             try:
                 user = User.objects.get(id=obj.assigned_user_id)
-                return {'id': user.id, 'name': f"{user.firstname}".strip() or user.username or user.email}
+                return {'id': user.id, 'name': f"{user.firstname}".strip(),'email': user.email}
             except User.DoesNotExist:
                 pass
         return None
@@ -618,7 +618,7 @@ class TicketSLASerializer(serializers.ModelSerializer):
         if obj.assigned_group_id:
             try:
                 group = UsersGroup.objects.get(id=obj.assigned_group_id)
-                return {'id': group.id, 'name': group.name}
+                return {'id': group.id, 'name': group.name,}
             except UsersGroup.DoesNotExist:
                 pass
         return None

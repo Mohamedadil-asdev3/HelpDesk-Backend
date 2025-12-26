@@ -4568,7 +4568,7 @@ class TicketView(APIView):
         clarification_required_tickets = get_tickets_by_status(user_requested_qs, 'Clarification Required')
         
         # Get CLARIFICATION APPLIED requested tickets (user requested)
-        clarification_applied_tickets = get_tickets_by_status(user_requested_qs, 'Clarification Applied')
+        clarification_applied_tickets = get_tickets_by_status(user_requested_qs, 'Clarification Supplied')
         
         # Total user requested tickets
         total_user_tickets = user_requested_qs.distinct().count()
@@ -4597,7 +4597,8 @@ class TicketView(APIView):
             }
         }
  
-        return Response(data, status=status.HTTP_200_OK)    
+        return Response(data, status=status.HTTP_200_OK)  
+      
 class ApproverTicketView(APIView):
     def get(self, request):
         # Get query parameters
@@ -4924,7 +4925,7 @@ class ApproverTicketView(APIView):
         clarification_required_tickets = get_tickets_by_status(assigned_tickets_qs, 'Clarification Required')
         
         # Get CLARIFICATION APPLIED tickets assigned to current user
-        clarification_applied_tickets = get_tickets_by_status(assigned_tickets_qs, 'Clarification Applied')
+        clarification_applied_tickets = get_tickets_by_status(assigned_tickets_qs, 'Clarification Supplied')
         
         # Total tickets assigned to current user
         total_assigned_tickets = assigned_tickets_qs.distinct().count()
@@ -5514,7 +5515,7 @@ class AdminTicketView(APIView):
         user_cancelled_tickets = get_user_tickets_by_status(all_tickets_qs, 'Cancelled')
         user_clarification_required_tickets = get_user_tickets_by_status(all_tickets_qs, 'Clarification Required')
         user_clarification_applied_tickets = get_user_tickets_by_status(all_tickets_qs, 'Clarification Applied')
-       
+        supplied_tickets = get_tickets_by_status(all_tickets_qs, 'Clarification Supplied')
         total_user_tickets = all_tickets_qs.distinct().count()
        
         user_stats = {
@@ -5529,8 +5530,10 @@ class AdminTicketView(APIView):
             "cancelled_tickets": user_cancelled_tickets["tickets"],
             "clarification_required": user_clarification_required_tickets["count"],
             "clarification_required_tickets": user_clarification_required_tickets["tickets"],
-            "clarification_applied": user_clarification_applied_tickets["count"],
-            "clarification_applied_tickets": user_clarification_applied_tickets["tickets"],
+            "supplied": supplied_tickets["count"],
+            "supplied_tickets": supplied_tickets["tickets"],
+            # "clarification_applied": user_clarification_applied_tickets["count"],
+            # "clarification_applied_tickets": user_clarification_applied_tickets["tickets"],
             "ticket_sources": {
                 "requested_by_any": total_user_tickets,
             }
@@ -5543,7 +5546,7 @@ class AdminTicketView(APIView):
         closed_tickets = get_tickets_by_status(all_tickets_qs, 'Closed')
         cancelled_tickets = get_tickets_by_status(all_tickets_qs, 'Cancelled')
         clarification_required_tickets = get_tickets_by_status(all_tickets_qs, 'Clarification Required')
-        clarification_applied_tickets = get_tickets_by_status(all_tickets_qs, 'Clarification Applied')
+        clarification_applied_tickets = get_tickets_by_status(all_tickets_qs, 'Clarification Supplied')
        
         # Total tickets
         total_tickets = all_tickets_qs.distinct().count()
@@ -5561,8 +5564,10 @@ class AdminTicketView(APIView):
             "cancelled_tickets": cancelled_tickets["tickets"],
             "clarification_required": clarification_required_tickets["count"],
             "clarification_required_tickets": clarification_required_tickets["tickets"],
-            "clarification_applied": clarification_applied_tickets["count"],
-            "clarification_applied_tickets": clarification_applied_tickets["tickets"],
+            "supplied": supplied_tickets["count"],
+            "supplied_tickets": supplied_tickets["tickets"],
+            # "clarification_applied": clarification_applied_tickets["count"],
+            # "clarification_applied_tickets": clarification_applied_tickets["tickets"],
             "ticket_sources": {
                 "all_tickets": total_tickets,
             },
@@ -5607,8 +5612,10 @@ class AdminTicketView(APIView):
             "cancelled_tickets": cancelled_filtered["tickets"],
             "clarification_required": clarification_required_filtered["count"],
             "clarification_required_tickets": clarification_required_filtered["tickets"],
-            "clarification_applied": clarification_applied_filtered["count"],
-            "clarification_applied_tickets": clarification_applied_filtered["tickets"],
+            # "clarification_applied": clarification_applied_filtered["count"],
+            # "clarification_applied_tickets": clarification_applied_filtered["tickets"],
+            "supplied": supplied_tickets["count"],
+            "supplied_tickets": supplied_tickets["tickets"],
             "ticket_sources": {
                 "assigned_to_any": total_assigned_tickets,
             },
