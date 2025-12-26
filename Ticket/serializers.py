@@ -595,6 +595,7 @@ class TicketSLASerializer(serializers.ModelSerializer):
     class Meta:
         model = TicketSLA
         fields = [
+             'confidential', 
             'assigned_user_id', 'assigned_group_id', 'assigned_user_detail', 'assigned_group_detail',
             'Approver_level1_user_id', 'Approver_level1_time',
             'Approver_level2_user_id', 'Approver_level2_time',
