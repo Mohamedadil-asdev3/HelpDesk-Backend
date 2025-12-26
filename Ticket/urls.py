@@ -18,7 +18,7 @@ from .views import (
     TicketView,HodUserAPIView,RoleAPIView,OverallStatusView,UserStatusView,TicketActionView,
     WatcherStatusView,UserRoleMappingAPIView,CEODashboardAPIView,MessageListCreateView,
     MessageDetailView,UserMessagesView,PlatformAPIView,ApproverTicketView,AdminTicketView,
-    DeleteTicketDocumentView, TicketSLAsWithNestedView
+    DeleteTicketDocumentView, TicketSLAsWithNestedView,AdminTicketMessagesView
     # HodUserAPIView
     
 )
@@ -74,6 +74,7 @@ urlpatterns = [
 
     path('users/', UserManagementAPIView.as_view(), name='user-list-create'),
     path('users/<int:pk>/', UserManagementAPIView.as_view(), name='user-update-delete'),
+    
 
     path('tickets/<int:ticket_no>/action/', TicketActionView.as_view(), name='ticket-action'),
 
@@ -90,7 +91,10 @@ urlpatterns = [
    
     # Custom: User-specific messages (GET/POST for userid)
     path('users/<int:userid>/messages/', UserMessagesView.as_view(), name='user-messages'),
+    path('users/<int:userid>/messages/<int:ticket_id>/', UserMessagesView.as_view(), name='user-ticket-messages'),
+    
 
+    path('admin/ticket-messages/<int:ticket_no>/', AdminTicketMessagesView.as_view(), name='admin-ticket-messages'),
     # path('role-permissions/', RolePermissionMappingAPIView.as_view(), name='role-permission-list-create'),
     # path('role-permissions/<int:pk>/', RolePermissionMappingAPIView.as_view(), name='role-permission-update-delete'),
     # Ticket/urls.py  → CORRECT LINE

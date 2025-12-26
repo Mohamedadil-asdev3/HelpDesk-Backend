@@ -1413,9 +1413,20 @@ class TicketCategoryListCreateView(APIView):
         department = TicketsMasterConfiguration.objects.filter(
             id=dept_id,
             is_active="Y"
-        ).filter(*[Q(entity_ids__contains=[eid]) for eid in entity_ids]).first()
+        ).first()
+
         if not department:
-            return Response({"error": "Invalid department_id or entities not allowed in department"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Department not found or inactive"}, status=400)
+
+        department_entity_ids = department.entity_ids or []
+
+        missing_entities = [eid for eid in entity_ids if eid not in department_entity_ids]
+        # department = TicketsMasterConfiguration.objects.filter(
+        #     id=dept_id,
+        #     is_active="Y"
+        # ).filter(*[Q(entity_ids__contains=[eid]) for eid in entity_ids]).first()
+        # if not department:
+        #     return Response({"error": "Invalid department_id or entities not allowed in department"}, status=status.HTTP_400_BAD_REQUEST)
  
         # Handle Category
         category_id = data.get("category_id")
@@ -1485,7 +1496,7 @@ class TicketCategoryListCreateView(APIView):
             "Approver_level5_time": data.get("sla5"),
             "assigned_user_id": data.get("assigned_user_id"),
             "assigned_group_id": data.get("assigned_group_id"),
-            "confidential": data.get("confidential", "N"),
+            # "confidential": data.get("confidential", "N"),
             "Execution_by": data.get("assign_technician"),  # Use correct field name (from prior fix)
             "is_active": "Y",
             "updated_date": timezone.now(),
@@ -1573,13 +1584,23 @@ class TicketCategoryRetrieveUpdateView(APIView):
         except ValueError:
             return Response({"error": "Invalid department_id"}, status=400)
  
+        # department = TicketsMasterConfiguration.objects.filter(
+        #     id=dept_id,
+        #     is_active="Y"
+        # ).filter(*[Q(entity_ids__contains=[eid]) for eid in entity_ids]).first()
+        # if not department:
+        #     return Response({"error": "Invalid department"}, status=400)
         department = TicketsMasterConfiguration.objects.filter(
-            id=dept_id,
-            is_active="Y"
-        ).filter(*[Q(entity_ids__contains=[eid]) for eid in entity_ids]).first()
+                id=dept_id,
+                is_active="Y"
+            ).first()
+
         if not department:
-            return Response({"error": "Invalid department"}, status=400)
- 
+            return Response({"error": "Department not found or inactive"}, status=400)
+
+        department_entity_ids = department.entity_ids or []
+
+        missing_entities = [eid for eid in entity_ids if eid not in department_entity_ids]
         # Update Category
         category.entity_ids = entity_ids
         category.department = department
@@ -8746,13 +8767,97 @@ class UserMessagesView(APIView):
     #     messages = Message.objects.filter(userid=userid).order_by('-createdon')
     #     serializer = MessageSerializer(messages, many=True)
     #     return Response(serializer.data, status=status.HTTP_200_OK)
-    def get(self, request, userid):
-        # Fetch messages where the user is sender OR receiver
-        messages = Message.objects.filter(
-            Q(sender_id=userid) | Q(receiver_id=userid)
-        ).order_by('-createdon')
-        serializer = MessageSerializer(messages, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    # def get(self, request, userid):
+    #     # Fetch messages where the user is sender OR receiver
+    #     messages = Message.objects.filter(
+    #         Q(sender_id=userid) | Q(receiver_id=userid)
+    #     ).order_by('-createdon')
+    #     serializer = MessageSerializer(messages, many=True)
+    #     return Response(serializer.data, status=status.HTTP_200_OK)
+    def get(self, request, userid, ticket_id=None):
+        """
+        GET /api/tickets/users/<userid>/messages/                  → All messages involving the user
+        GET /api/tickets/users/<userid>/messages/<ticket_id>/      → ALL messages for the specified ticket (if user has access)
+        """
+        # Authentication & Authorization: Ensure only the user or staff can access
+        if not request.user.is_staff and request.user.id != int(userid):
+            return Response(
+                {"error": "You can only view your own messages."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            userid = int(userid)  # Ensure it's an integer
+        except (ValueError, TypeError):
+            return Response({"error": "Invalid user ID."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if ticket_id is None:
+            # Case 1: Return all messages where the user is sender OR receiver
+            queryset = Message.objects.filter(
+                Q(sender_id=userid) | Q(receiver_id=userid)
+            ).order_by('createdon')
+
+            serializer = MessageSerializer(queryset, many=True, context={'request': request})
+            return Response(serializer.data)
+
+        else:
+            # Case 2: Specific ticket messages
+            try:
+                ticket_id = int(ticket_id)
+                ticket = CreateTicket.objects.get(pk=ticket_id)
+            except (ValueError, TypeError):
+                return Response({"error": "Invalid ticket ID."}, status=status.HTTP_400_BAD_REQUEST)
+            except CreateTicket.DoesNotExist:
+                return Response({"error": "Ticket not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            # Permission check: Is the user involved in this ticket?
+            is_involved = False
+
+            # 1. Requester (ticket creator)
+            if ticket.requested_id == userid:
+                is_involved = True
+
+            # 2. Directly assigned users (assignees_detail is usually a related name or JSON field)
+            # Adjust field name based on your model. Common cases:
+            if hasattr(ticket, 'assignees_detail'):
+                assigned_user_ids = [u.id for u in ticket.assignees_detail.all()] if ticket.assignees_detail else []
+            elif hasattr(ticket, 'assigned_users'):  # If stored as JSON or list
+                assigned_user_ids = ticket.assigned_users or []
+            else:
+                assigned_user_ids = []
+
+            if userid in assigned_user_ids:
+                is_involved = True
+
+            # 3. Assigned via groups
+            assigned_group_ids = []
+            if hasattr(ticket, 'assigned_groups_detail'):
+                assigned_group_ids = [g.id for g in ticket.assigned_groups_detail.all()]
+            elif hasattr(ticket, 'assigned_groups'):
+                assigned_group_ids = ticket.assigned_groups or []
+
+            if assigned_group_ids:
+                group_user_ids = UsersGroup.objects.filter(
+                    id__in=assigned_group_ids
+                ).values_list('users__id', flat=True).distinct()
+
+                if userid in group_user_ids:
+                    is_involved = True
+
+            # Final permission check
+            if not is_involved and not request.user.is_staff:
+                return Response(
+                    {"error": "You do not have permission to view messages for this ticket."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # Return ALL messages for this ticket (not just between user and assignee)
+            queryset = Message.objects.filter(
+                ticket_no=ticket
+            ).order_by('createdon')
+
+            serializer = MessageSerializer(queryset, many=True, context={'request': request})
+            return Response(serializer.data)
     def post(self, request, userid):
         data = request.data.copy()
         data['userid'] = userid  # Enforce from URL
@@ -8762,6 +8867,37 @@ class UserMessagesView(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class AdminTicketMessagesView(APIView):
+    """
+    Dedicated endpoint for Admins/Staff to view ALL messages of a specific ticket.
+    URL: GET /api/admin/ticket-messages/<int:ticket_no>/
+    Only accessible to authenticated staff/admin users.
+    Returns all messages for the ticket, ordered chronologically.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, ticket_no):
+        # Restrict to staff/admin only
+        if not request.user.is_staff:
+            return Response(
+                {"error": "You do not have permission to view ticket messages."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Verify ticket exists (optional but good practice)
+        ticket = get_object_or_404(CreateTicket, pk=ticket_no)
+
+        # Get ALL messages for this ticket — no sender/receiver filtering
+        messages = Message.objects.filter(ticket_no=ticket).order_by('createdon')
+
+        serializer = MessageSerializer(messages, many=True, context={'request': request})
+        return Response({
+            "ticket_no": ticket_no,
+            "ticket_title": ticket.title,
+            "messages_count": messages.count(),
+            "messages": serializer.data
+        }, status=status.HTTP_200_OK)
 
 class PlatformAPIView(APIView):
     permission_classes = [AllowAny]
