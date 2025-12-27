@@ -8767,6 +8767,113 @@ class MessageDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+# class UserMessagesView(APIView):
+#     permission_classes = [IsAuthenticatedOrReadOnly]
+ 
+#     # def get(self, request, userid):
+#     #     messages = Message.objects.filter(userid=userid).order_by('-createdon')
+#     #     serializer = MessageSerializer(messages, many=True)
+#     #     return Response(serializer.data, status=status.HTTP_200_OK)
+#     # def get(self, request, userid):
+#     #     # Fetch messages where the user is sender OR receiver
+#     #     messages = Message.objects.filter(
+#     #         Q(sender_id=userid) | Q(receiver_id=userid)
+#     #     ).order_by('-createdon')
+#     #     serializer = MessageSerializer(messages, many=True)
+#     #     return Response(serializer.data, status=status.HTTP_200_OK)
+#     def get(self, request, userid, ticket_id=None):
+#         """
+#         GET /api/tickets/users/<userid>/messages/                  → All messages involving the user
+#         GET /api/tickets/users/<userid>/messages/<ticket_id>/      → ALL messages for the specified ticket (if user has access)
+#         """
+#         # Authentication & Authorization: Ensure only the user or staff can access
+#         if not request.user.is_staff and request.user.id != int(userid):
+#             return Response(
+#                 {"error": "You can only view your own messages."},
+#                 status=status.HTTP_403_FORBIDDEN
+#             )
+
+#         try:
+#             userid = int(userid)  # Ensure it's an integer
+#         except (ValueError, TypeError):
+#             return Response({"error": "Invalid user ID."}, status=status.HTTP_400_BAD_REQUEST)
+
+#         if ticket_id is None:
+#             # Case 1: Return all messages where the user is sender OR receiver
+#             queryset = Message.objects.filter(
+#                 Q(sender_id=userid) | Q(receiver_id=userid)
+#             ).order_by('createdon')
+
+#             serializer = MessageSerializer(queryset, many=True, context={'request': request})
+#             return Response(serializer.data)
+
+#         else:
+#             # Case 2: Specific ticket messages
+#             try:
+#                 ticket_id = int(ticket_id)
+#                 ticket = CreateTicket.objects.get(pk=ticket_id)
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid ticket ID."}, status=status.HTTP_400_BAD_REQUEST)
+#             except CreateTicket.DoesNotExist:
+#                 return Response({"error": "Ticket not found."}, status=status.HTTP_404_NOT_FOUND)
+
+#             # Permission check: Is the user involved in this ticket?
+#             is_involved = False
+
+#             # 1. Requester (ticket creator)
+#             if ticket.requested_id == userid:
+#                 is_involved = True
+
+#             # 2. Directly assigned users (assignees_detail is usually a related name or JSON field)
+#             # Adjust field name based on your model. Common cases:
+#             if hasattr(ticket, 'assignees_detail'):
+#                 assigned_user_ids = [u.id for u in ticket.assignees_detail.all()] if ticket.assignees_detail else []
+#             elif hasattr(ticket, 'assigned_users'):  # If stored as JSON or list
+#                 assigned_user_ids = ticket.assigned_users or []
+#             else:
+#                 assigned_user_ids = []
+
+#             if userid in assigned_user_ids:
+#                 is_involved = True
+
+#             # 3. Assigned via groups
+#             assigned_group_ids = []
+#             if hasattr(ticket, 'assigned_groups_detail'):
+#                 assigned_group_ids = [g.id for g in ticket.assigned_groups_detail.all()]
+#             elif hasattr(ticket, 'assigned_groups'):
+#                 assigned_group_ids = ticket.assigned_groups or []
+
+#             if assigned_group_ids:
+#                 group_user_ids = UsersGroup.objects.filter(
+#                     id__in=assigned_group_ids
+#                 ).values_list('users__id', flat=True).distinct()
+
+#                 if userid in group_user_ids:
+#                     is_involved = True
+
+#             # Final permission check
+#             if not is_involved and not request.user.is_staff:
+#                 return Response(
+#                     {"error": "You do not have permission to view messages for this ticket."},
+#                     status=status.HTTP_403_FORBIDDEN
+#                 )
+
+#             # Return ALL messages for this ticket (not just between user and assignee)
+#             queryset = Message.objects.filter(
+#                 ticket_no=ticket
+#             ).order_by('createdon')
+
+#             serializer = MessageSerializer(queryset, many=True, context={'request': request})
+#             return Response(serializer.data)
+#     def post(self, request, userid):
+#         data = request.data.copy()
+#         data['userid'] = userid  # Enforce from URL
+#         # parent optional—serializer handles
+#         serializer = MessageSerializer(data=data)
+#         if serializer.is_valid():
+#             serializer.save()
+#             return Response(serializer.data, status=status.HTTP_201_CREATED)
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 class UserMessagesView(APIView):
     permission_classes = [IsAuthenticatedOrReadOnly]
  
@@ -8865,16 +8972,99 @@ class UserMessagesView(APIView):
 
             serializer = MessageSerializer(queryset, many=True, context={'request': request})
             return Response(serializer.data)
+    # def post(self, request, userid):
+    #     data = request.data.copy()
+    #     data['userid'] = userid  # Enforce from URL
+    #     # parent optional—serializer handles
+    #     serializer = MessageSerializer(data=data)
+    #     if serializer.is_valid():
+    #         serializer.save()
+    #         return Response(serializer.data, status=status.HTTP_201_CREATED)
+    #     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     def post(self, request, userid):
-        data = request.data.copy()
-        data['userid'] = userid  # Enforce from URL
-        # parent optional—serializer handles
-        serializer = MessageSerializer(data=data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+        sender = request.user
+
+        # Security: sender must match the userid in URL
+        if sender.id != int(userid):
+            return Response({"error": "You cannot send messages as another user."}, status=status.HTTP_403_FORBIDDEN)
+
+        ticket_no = request.data.get('ticket_no')
+        message_text = request.data.get('message')
+        protected = request.data.get('protected', False)
+
+        if not ticket_no or not message_text:
+            return Response({"error": "ticket_no and message are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            ticket = CreateTicket.objects.get(ticket_no=ticket_no)
+        except CreateTicket.DoesNotExist:
+            return Response({"error": "Ticket not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        receivers = []
+
+        if sender.is_staff:  # ADMIN: BROADCAST TO ALL INVOLVED
+            # 1. Add requester (ticket creator)
+            if ticket.requested and ticket.requested != sender:
+                receivers.append(ticket.requested)
+
+            # 2. Add all direct assignees from assigned_users (JSON field)
+            assigned_users = ticket.assigned_users or []
+            for item in assigned_users:
+                try:
+                    if isinstance(item, int):
+                        user = User.objects.get(id=item)
+                    else:
+                        # Handle email strings like "user@example.com" or "\"user@example.com\""
+                        email = str(item).strip().strip('"\'')
+                        user = User.objects.get(email=email)
+                    if user != sender and user not in receivers:
+                        receivers.append(user)
+                except User.DoesNotExist:
+                    continue  # Skip invalid assignees
+
+            # Optional: Add group members (uncomment if you want full broadcast)
+            # assigned_groups = ticket.assigned_groups or []
+            # for group_id in assigned_groups:
+            #     try:
+            #         group = UsersGroup.objects.get(id=group_id)
+            #         for member in group.get_users():
+            #             if member != sender and member not in receivers:
+            #                 receivers.append(member)
+            #     except UsersGroup.DoesNotExist:
+            #         pass
+
+        else:
+            # REGULAR USER: send only to the specified receiver
+            receiver_id = request.data.get('receiver')
+            if not receiver_id:
+                return Response({"error": "receiver is required for non-admin users."}, status=400)
+            try:
+                receiver = User.objects.get(id=receiver_id)
+                receivers = [receiver]
+            except User.DoesNotExist:
+                return Response({"error": "Invalid receiver."}, status=400)
+
+        if not receivers:
+            return Response({"error": "No valid receivers found."}, status=400)
+
+        # Create one message per receiver
+        created_messages = []
+        for receiver in receivers:
+            payload = {
+                'sender': sender.id,
+                'receiver': receiver.id,
+                'ticket_no': ticket_no,
+                'message': message_text,
+                'protected': protected,
+            }
+            serializer = MessageSerializer(data=payload, context={'request': request})
+            if serializer.is_valid(raise_exception=True):
+                message = serializer.save()
+                created_messages.append(MessageSerializer(message, context={'request': request}).data)
+
+        # Return the first created message (frontend expects one object)
+        return Response(created_messages[0], status=status.HTTP_201_CREATED)
+        
 class AdminTicketMessagesView(APIView):
     """
     Dedicated endpoint for Admins/Staff to view ALL messages of a specific ticket.
@@ -8893,9 +9083,9 @@ class AdminTicketMessagesView(APIView):
             )
 
         # Verify ticket exists (optional but good practice)
-        ticket = get_object_or_404(CreateTicket, pk=ticket_no)
-
-        # Get ALL messages for this ticket — no sender/receiver filtering
+        # ticket = get_object_or_404(CreateTicket, pk=ticket_no)
+        ticket = get_object_or_404(CreateTicket, ticket_no=ticket_no)
+              # Get ALL messages for this ticket — no sender/receiver filtering
         messages = Message.objects.filter(ticket_no=ticket).order_by('createdon')
 
         serializer = MessageSerializer(messages, many=True, context={'request': request})
@@ -8905,6 +9095,37 @@ class AdminTicketMessagesView(APIView):
             "messages_count": messages.count(),
             "messages": serializer.data
         }, status=status.HTTP_200_OK)
+        
+# class AdminTicketMessagesView(APIView):
+#     """
+#     Dedicated endpoint for Admins/Staff to view ALL messages of a specific ticket.
+#     URL: GET /api/admin/ticket-messages/<int:ticket_no>/
+#     Only accessible to authenticated staff/admin users.
+#     Returns all messages for the ticket, ordered chronologically.
+#     """
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request, ticket_no):
+#         # Restrict to staff/admin only
+#         if not request.user.is_staff:
+#             return Response(
+#                 {"error": "You do not have permission to view ticket messages."},
+#                 status=status.HTTP_403_FORBIDDEN
+#             )
+
+#         # Verify ticket exists (optional but good practice)
+#         ticket = get_object_or_404(CreateTicket, pk=ticket_no)
+
+#         # Get ALL messages for this ticket — no sender/receiver filtering
+#         messages = Message.objects.filter(ticket_no=ticket).order_by('createdon')
+
+#         serializer = MessageSerializer(messages, many=True, context={'request': request})
+#         return Response({
+#             "ticket_no": ticket_no,
+#             "ticket_title": ticket.title,
+#             "messages_count": messages.count(),
+#             "messages": serializer.data
+#         }, status=status.HTTP_200_OK)
 
 class PlatformAPIView(APIView):
     permission_classes = [AllowAny]
