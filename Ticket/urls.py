@@ -93,8 +93,8 @@ urlpatterns = [
     path('users/<int:userid>/messages/', UserMessagesView.as_view(), name='user-messages'),
     path('users/<int:userid>/messages/<int:ticket_id>/', UserMessagesView.as_view(), name='user-ticket-messages'),
     
-
-    path('admin/ticket-messages/<int:ticket_no>/', AdminTicketMessagesView.as_view(), name='admin-ticket-messages'),
+    path('admin/ticket-messages/<str:ticket_no>/', AdminTicketMessagesView.as_view(), name='admin-ticket-messages'),
+    # path('admin/ticket-messages/<int:ticket_no>/', AdminTicketMessagesView.as_view(), name='admin-ticket-messages'),
     # path('role-permissions/', RolePermissionMappingAPIView.as_view(), name='role-permission-list-create'),
     # path('role-permissions/<int:pk>/', RolePermissionMappingAPIView.as_view(), name='role-permission-update-delete'),
     # Ticket/urls.py  → CORRECT LINE
