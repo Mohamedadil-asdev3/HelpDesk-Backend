@@ -354,7 +354,8 @@ class CreateTicket(models.Model):
         blank=True,
         related_name='legacy_assigned_tickets'
     )
-    
+    confidential = models.BooleanField(default=False)
+
     created_date = models.DateTimeField(auto_now_add=True)  
     updated_date = models.DateTimeField(auto_now=True)
     closed_on = models.DateTimeField(null=True, blank=True)
@@ -367,6 +368,35 @@ class CreateTicket(models.Model):
             last_ticket = CreateTicket.objects.order_by('-id').first()
             self.ticket_no = (last_ticket.ticket_no + 1) if last_ticket else 1
         super().save(*args, **kwargs)
+        
+class TicketStatusLog(models.Model):
+    ticket = models.ForeignKey(CreateTicket, on_delete=models.CASCADE, related_name="status_logs")
+    old_status = models.ForeignKey(
+        'TicketsMasterConfiguration', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='old_status_logs'
+    )
+    new_status = models.ForeignKey(
+        'TicketsMasterConfiguration', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='new_status_logs'
+    )
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True
+    )
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "tickets_status_log"
+        ordering = ['-changed_at']
+
 class TicketDocument(models.Model):
     id = models.AutoField(primary_key=True)
     ticket = models.ForeignKey(CreateTicket, related_name="documents", on_delete=models.CASCADE)
