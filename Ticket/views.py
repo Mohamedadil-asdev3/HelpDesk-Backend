@@ -13,6 +13,9 @@ from .serializers import TicketsMasterConfigurationSerializer, TicketDocumentSer
 from Authenticate.serializers import UsersGroupSerializer,WatcherUserSerializer
 from django.utils import timezone
 import logging
+import re
+import calendar
+from collections import defaultdict
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from django.db import transaction
@@ -4004,7 +4007,6 @@ User = get_user_model()
 #         #             "name": user_obj.email.split("@")[0],
 #         #             "email": user_obj.email,
 #         #             "full_name": user_obj.email,
-#         #             "is_unknown": False
 #         #         }
 
 #         #     except User.DoesNotExist:
@@ -4037,7 +4039,6 @@ User = get_user_model()
 #         #             "name": firstname or user_obj.email.split("@")[0],
 #         #             "email": user_obj.email,
 #         #             "full_name": full_name,
-#         #             "is_unknown": False
 #         #         }
 
 #         #     except User.DoesNotExist:
@@ -4085,7 +4086,6 @@ User = get_user_model()
 #                     "name": firstname or user_obj.email.split("@")[0],
 #                     "email": user_obj.email,
 #                     "full_name": full_name,
-#                     "is_unknown": False
 #                 }
 
 #             except User.DoesNotExist:
@@ -4413,13 +4413,44 @@ class TicketView(APIView):
                 seen_assignee_ids = set()  # To deduplicate across direct and groups
                 
                 # Handle direct assignees
+                # if assigned_user_ids:
+                #     # Assuming assigned_user_ids is list of integers (user IDs); adjust if emails
+                #     try:
+                #         # Filter users by IDs
+                #         direct_users = User.objects.filter(id__in=assigned_user_ids).values(
+                #             'id', 'firstname','email', 'username'
+                #         )
+                #         for user_data in direct_users:
+                #             user_id = user_data['id']
+                #             if user_id not in seen_assignee_ids:
+                #                 seen_assignee_ids.add(user_id)
+                #                 assignees_detail.append({
+                #                     "id": user_id,
+                #                     "firstname": user_data['firstname'] or user_data['username'] or "Unknown",
+                #                     "email": user_data['email'],
+                #                     "name": f"{user_data['firstname']}".strip() or user_data['username'] or "Unknown"
+                #                 })
+                #     except Exception as e:
+                #         # If IDs are invalid or emails, handle accordingly
+                #         print(f"Error fetching direct assignees: {e}")
+
                 if assigned_user_ids:
-                    # Assuming assigned_user_ids is list of integers (user IDs); adjust if emails
                     try:
-                        # Filter users by IDs
-                        direct_users = User.objects.filter(id__in=assigned_user_ids).values(
+                        id_list = []
+                        email_list = []
+
+                        for val in assigned_user_ids:
+                            if isinstance(val, int) or (isinstance(val, str) and val.isdigit()):
+                                id_list.append(int(val))
+                            elif isinstance(val, str):
+                                email_list.append(val)
+
+                        direct_users = User.objects.filter(
+                            Q(id__in=id_list) | Q(email__in=email_list)
+                        ).values(
                             'id', 'first_name', 'last_name', 'email', 'username'
                         )
+
                         for user_data in direct_users:
                             user_id = user_data['id']
                             if user_id not in seen_assignee_ids:
@@ -4429,10 +4460,14 @@ class TicketView(APIView):
                                     "firstname": user_data['first_name'] or user_data['username'] or "Unknown",
                                     "lastname": user_data['last_name'] or "",
                                     "email": user_data['email'],
-                                    "name": f"{user_data['first_name']} {user_data['last_name']}".strip() or user_data['username'] or "Unknown"
+                                    "name": (
+                                        f"{user_data['first_name']} {user_data['last_name']}".strip()
+                                        or user_data['username']
+                                        or "Unknown"
+                                    )
                                 })
+
                     except Exception as e:
-                        # If IDs are invalid or emails, handle accordingly
                         print(f"Error fetching direct assignees: {e}")
                 
                 # Handle group assignees: add group members if no direct or to supplement
@@ -4447,10 +4482,9 @@ class TicketView(APIView):
                                     seen_assignee_ids.add(member_id)
                                     assignees_detail.append({
                                         "id": member_id,
-                                        "firstname": getattr(member, 'first_name', None) or getattr(member, 'name', None) or getattr(member, 'username', "Unknown"),
-                                        "lastname": getattr(member, 'last_name', "") or "",
+                                        "firstname": getattr(member, 'firstname', None) or getattr(member, 'name', None) or getattr(member, 'username', "Unknown"),
                                         "email": member.email,
-                                        "name": f"{getattr(member, 'first_name', '')} {getattr(member, 'last_name', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
+                                        "name": f"{getattr(member, 'firstname', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
                                     })
                         except UsersGroup.DoesNotExist:
                             pass
@@ -4478,10 +4512,9 @@ class TicketView(APIView):
                                 "members": [  # List of member dicts
                                     {
                                         "id": m.id,
-                                        "firstname": getattr(m, 'first_name', None) or getattr(m, 'name', None) or getattr(m, 'username', "Unknown"),
-                                        "lastname": getattr(m, 'last_name', "") or "",
+                                        "firstname": getattr(m, 'firstname', None) or getattr(m, 'name', None) or getattr(m, 'username', "Unknown"),
                                         "email": m.email,
-                                        "name": f"{getattr(m, 'first_name', '')} {getattr(m, 'last_name', '')}".strip() or getattr(m, 'username', "Unknown") or getattr(m, 'name', "Unknown")
+                                        "name": f"{getattr(m, 'firstname', '')}".strip() or getattr(m, 'username', "Unknown") or getattr(m, 'name', "Unknown")
                                     } for m in group_members
                                 ],
                                 "members_count": len(group_members)
@@ -4531,7 +4564,7 @@ class TicketView(APIView):
                         "id": ticket.requested.id if ticket.requested else None,
                         "name": (
                             getattr(ticket.requested, 'name', None) or 
-                            getattr(ticket.requested, 'first_name', None) or 
+                            getattr(ticket.requested, 'firstname', None) or 
                             ticket.requested.email
                         ) if ticket.requested else None,
                         "email": ticket.requested.email if ticket.requested else None
@@ -4706,9 +4739,9 @@ class ApproverTicketView(APIView):
                 
                 return {
                     "id": user_obj.id,
-                    "name": getattr(user_obj, 'first_name', None) or getattr(user_obj, 'name', None) or user_obj.email.split('@')[0],
+                    "name": getattr(user_obj, 'firstname', None) or getattr(user_obj, 'name', None) or user_obj.email.split('@')[0],
                     "email": user_obj.email,
-                    "full_name": f"{user_obj.first_name or ''} {user_obj.last_name or ''}".strip() or user_obj.email.split('@')[0]
+                    "full_name": f"{user_obj.firstname or ''}".strip() or user_obj.email.split('@')[0]
                 }
             except User.DoesNotExist:
                 identifier_str = str(user_identifier)
@@ -4849,7 +4882,7 @@ class ApproverTicketView(APIView):
                         "id": ticket.requested.id,
                         "name": (
                             getattr(ticket.requested, 'name', None) or 
-                            getattr(ticket.requested, 'first_name', None) or 
+                            getattr(ticket.requested, 'firstname', None) or 
                             ticket.requested.email
                         ),
                         "email": ticket.requested.email
@@ -5109,9 +5142,7 @@ class AdminTicketView(APIView):
 
                 # Safely get firstname (or fallback to username/email)
                 firstname = getattr(user_obj, 'firstname', None) or getattr(user_obj, 'username', None) or ""
-                # lastname may not exist — use safe getattr with empty fallback
-                lastname = getattr(user_obj, 'lastname', "")  
-                full_name = f"{firstname} {lastname}".strip()
+                full_name = f"{firstname} ".strip()
                 if not full_name:
                     full_name = user_obj.email.split("@")[0]  # fallback to email prefix
 
@@ -5120,7 +5151,6 @@ class AdminTicketView(APIView):
                     "name": firstname or user_obj.email.split("@")[0],
                     "email": user_obj.email,
                     "full_name": full_name,
-                    "is_unknown": False
                 }
 
             except User.DoesNotExist:
@@ -5328,58 +5358,92 @@ class AdminTicketView(APIView):
                 assignees_detail = []
                 seen_assignee_ids = set()
 
+                # if assigned_user_ids:
+                #     user_ids = []
+                #     user_emails = []
+
+                #     # Safely iterate over assigned_user_ids (in case it's not a list)
+                #     items = assigned_user_ids if isinstance(assigned_user_ids, list) else []
+                #     for item in items:
+                #         if isinstance(item, int) or (isinstance(item, str) and item.isdigit()):
+                #             try:
+                #                 user_ids.append(int(item))
+                #             except ValueError:
+                #                 pass
+                #         elif isinstance(item, str) and '@' in item:
+                #             cleaned = item.strip().strip('"\'')
+                #             user_emails.append(cleaned)
+
+                #     try:
+                #         # Fetch by IDs
+                #         if user_ids:
+                #             for user in User.objects.filter(id__in=user_ids):
+                #                 if user.id not in seen_assignee_ids:
+                #                     seen_assignee_ids.add(user.id)
+                #                     assignees_detail.append({
+                #                         "id": user.id,
+                #                         "firstname": getattr(user, 'firstname', '') or getattr(user, 'username', '') or "Unknown",
+                #                         "email": user.email,
+                #                         "name": (
+                #                             f"{getattr(user, 'firstname', '')}".strip()
+                #                             or getattr(user, 'username', '') 
+                #                             or user.email 
+                #                             or "Unknown"
+                #                         )
+                #                     })
+
+                #         # Fetch by emails
+                #         if user_emails:
+                #             for user in User.objects.filter(email__in=user_emails):
+                #                 if user.id not in seen_assignee_ids:
+                #                     seen_assignee_ids.add(user.id)
+                #                     assignees_detail.append({
+                #                         "id": user.id,
+                #                         "firstname": getattr(user, 'firstname', '') or getattr(user, 'username', '') or "Unknown",
+                                        
+                #                         "email": user.email,
+                #                         "name": (
+                #                             f"{getattr(user, 'firstname', '')}".strip()
+                #                             or getattr(user, 'username', '') 
+                #                             or user.email 
+                #                             or "Unknown"
+                #                         )
+                #                     })
+
+                #     except Exception as e:
+                #         print(f"Error fetching direct assignees: {e}")
                 if assigned_user_ids:
-                    user_ids = []
-                    user_emails = []
-
-                    # Safely iterate over assigned_user_ids (in case it's not a list)
-                    items = assigned_user_ids if isinstance(assigned_user_ids, list) else []
-                    for item in items:
-                        if isinstance(item, int) or (isinstance(item, str) and item.isdigit()):
-                            try:
-                                user_ids.append(int(item))
-                            except ValueError:
-                                pass
-                        elif isinstance(item, str) and '@' in item:
-                            cleaned = item.strip().strip('"\'')
-                            user_emails.append(cleaned)
-
                     try:
-                        # Fetch by IDs
-                        if user_ids:
-                            for user in User.objects.filter(id__in=user_ids):
-                                if user.id not in seen_assignee_ids:
-                                    seen_assignee_ids.add(user.id)
-                                    assignees_detail.append({
-                                        "id": user.id,
-                                        "firstname": getattr(user, 'firstname', '') or getattr(user, 'username', '') or "Unknown",
-                                        "lastname": getattr(user, 'lastname', '') or "",
-                                        "email": user.email,
-                                        "name": (
-                                            f"{getattr(user, 'firstname', '')} {getattr(user, 'lastname', '')}".strip()
-                                            or getattr(user, 'username', '') 
-                                            or user.email 
-                                            or "Unknown"
-                                        )
-                                    })
+                        id_list = []
+                        email_list = []
 
-                        # Fetch by emails
-                        if user_emails:
-                            for user in User.objects.filter(email__in=user_emails):
-                                if user.id not in seen_assignee_ids:
-                                    seen_assignee_ids.add(user.id)
-                                    assignees_detail.append({
-                                        "id": user.id,
-                                        "firstname": getattr(user, 'firstname', '') or getattr(user, 'username', '') or "Unknown",
-                                        "lastname": getattr(user, 'lastname', '') or "",
-                                        "email": user.email,
-                                        "name": (
-                                            f"{getattr(user, 'firstname', '')} {getattr(user, 'lastname', '')}".strip()
-                                            or getattr(user, 'username', '') 
-                                            or user.email 
-                                            or "Unknown"
-                                        )
-                                    })
+                        for val in assigned_user_ids:
+                            if isinstance(val, int) or (isinstance(val, str) and val.isdigit()):
+                                id_list.append(int(val))
+                            elif isinstance(val, str):
+                                email_list.append(val)
+
+                        direct_users = User.objects.filter(
+                            Q(id__in=id_list) | Q(email__in=email_list)
+                        ).values(
+                            'id', 'first_name', 'last_name', 'email', 'username'
+                        )
+
+                        for user_data in direct_users:
+                            user_id = user_data['id']
+                            if user_id not in seen_assignee_ids:
+                                seen_assignee_ids.add(user_id)
+                                assignees_detail.append({
+                                    "id": user_id,
+                                    "firstname": user_data['first_name'] or user_data['username'] or "Unknown",
+                                    "lastname": user_data['last_name'] or "",
+                                    "email": user_data['email'],
+                                    "name": (
+                                        f"{user_data['first_name']} {user_data['last_name']}".strip()
+                                        or user_data['username']
+                                        or "Unknown"
+                                    )
+                                })
 
                     except Exception as e:
                         print(f"Error fetching direct assignees: {e}")
@@ -5396,9 +5460,8 @@ class AdminTicketView(APIView):
                                     assignees_detail.append({
                                         "id": member_id,
                                         "firstname": getattr(member, 'firstname', None) or getattr(member, 'name', None) or getattr(member, 'username', "Unknown"),
-                                        "lastname": getattr(member, 'lastname', "") or "",
                                         "email": member.email,
-                                        "name": f"{getattr(member, 'firstname', '')} {getattr(member, 'lastname', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
+                                        "name": f"{getattr(member, 'firstname', '')}".strip() or getattr(member, 'username', "Unknown") or getattr(member, 'name', "Unknown")
                                     })
                         except UsersGroup.DoesNotExist:
                             pass
@@ -5427,9 +5490,8 @@ class AdminTicketView(APIView):
                                     {
                                         "id": m.id,
                                         "firstname": getattr(m, 'firstname', None) or getattr(m, 'name', None) or getattr(m, 'username', "Unknown"),
-                                        "lastname": getattr(m, 'lastname', "") or "",
                                         "email": m.email,
-                                        "name": f"{getattr(m, 'firstname', '')} {getattr(m, 'lastname', '')}".strip() or getattr(m, 'username', "Unknown") or getattr(m, 'name', "Unknown")
+                                        "name": f"{getattr(m, 'firstname', '')}".strip() or getattr(m, 'username', "Unknown") or getattr(m, 'name', "Unknown")
                                     } for m in group_members
                                 ],
                                 "members_count": len(group_members)
@@ -9095,7 +9157,1299 @@ class AdminTicketMessagesView(APIView):
             "messages_count": messages.count(),
             "messages": serializer.data
         }, status=status.HTTP_200_OK)
-        
+
+# class AdminDashboardTicketView(APIView):
+#     def get(self, request):
+#         # Get query parameters
+#         start_date_str = request.query_params.get('start_date')
+#         end_date_str = request.query_params.get('end_date')
+#         search = request.query_params.get('search', '').strip()
+#         entity_id = request.query_params.get('entity_id')
+#         assignee_user = request.query_params.get('assignee_user')
+#         assignee_group = request.query_params.get('assignee_group')
+#         user_email = request.user.email
+
+#         # Base queryset: all tickets for admin
+#         all_tickets_qs = CreateTicket.objects.all()
+
+#         # Apply entity filter
+#         if entity_id:
+#             try:
+#                 entity_id = int(entity_id)
+#                 all_tickets_qs = all_tickets_qs.filter(entity_id=entity_id)
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid entity_id"}, status=400)
+
+#         # Apply assignee_user filter
+#         if assignee_user:
+#             try:
+#                 assignee_user_id = int(assignee_user)
+#                 all_tickets_qs = all_tickets_qs.filter(
+#                     Q(assigned_users__contains=assignee_user_id) |
+#                     Q(assigned_users__contains=str(assignee_user_id)) |
+#                     Q(assignee=assignee_user_id)
+#                 ).distinct()
+#             except ValueError:
+#                 assignee_email = assignee_user
+#                 all_tickets_qs = all_tickets_qs.filter(
+#                     Q(assigned_users__contains=assignee_email) |
+#                     Q(assigned_users__contains=f'"{assignee_email}"')
+#                 ).distinct()
+
+#         # Apply assignee_group filter
+#         if assignee_group:
+#             try:
+#                 assignee_group_id = int(assignee_group)
+#                 all_tickets_qs = all_tickets_qs.filter(
+#                     Q(assigned_groups__contains=assignee_group_id) |
+#                     Q(assigned_groups__contains=str(assignee_group_id)) |
+#                     Q(assigned_group=assignee_group_id)
+#                 ).distinct()
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid assignee_group ID"}, status=400)
+
+#         # Apply date filter
+#         if start_date_str and end_date_str:
+#             try:
+#                 start_date = timezone.make_aware(
+#                     timezone.datetime.strptime(start_date_str, '%Y-%m-%d')
+#                 )
+#                 end_date = timezone.make_aware(
+#                     timezone.datetime.strptime(end_date_str, '%Y-%m-%d')
+#                 ) + timedelta(days=1) - timedelta(seconds=1)
+#                 all_tickets_qs = all_tickets_qs.filter(
+#                     created_date__gte=start_date, created_date__lte=end_date
+#                 )
+#             except ValueError:
+#                 return Response({"error": "Invalid date format. Use YYYY-MM-DD."},
+#                                 status=status.HTTP_400_BAD_REQUEST)
+
+#         # Apply search filter
+#         if search:
+#             all_tickets_qs = all_tickets_qs.filter(
+#                 Q(title__icontains=search) | Q(description__icontains=search)
+#             )
+
+#         # Optimized queryset for analytics
+#         tickets_qs = all_tickets_qs.select_related(
+#             'category', 'location', 'status', 'priority', 'department', 'requested'
+#         )
+
+#         # ===================================================================
+#         # DASHBOARD ANALYTICS
+#         # ===================================================================
+#         analytics = {}
+
+#         # 1. Top Categories
+#         top_categories = tickets_qs.values(
+#             'category__id', 'category__category_name'
+#         ).annotate(count=Count('id')).order_by('-count')[:10]
+
+#         analytics['top_categories'] = [
+#             {
+#                 "id": item['category__id'],
+#                 "name": item['category__category_name'] or "Uncategorized",
+#                 "count": item['count']
+#             } for item in top_categories
+#         ]
+
+#         # 2. Top Locations
+#         top_locations = tickets_qs.values(
+#             'location__id', 'location__field_name'
+#         ).filter(location__isnull=False).annotate(count=Count('id')).order_by('-count')[:10]
+
+#         analytics['top_locations'] = [
+#             {
+#                 "id": item['location__id'],
+#                 "name": item['location__field_name'] or "Unknown",
+#                 "count": item['count']
+#             } for item in top_locations
+#         ]
+
+#         # 3. Top Requesters
+#         top_requesters = tickets_qs.values(
+#             'requested__id', 'requested__email',
+#             'requested__firstname',
+#         ).filter(requested__isnull=False).annotate(count=Count('id')).order_by('-count')[:15]
+
+#         analytics['top_requesters'] = [
+#             {
+#                 "id": item['requested__id'],
+#                 "email": item['requested__email'],
+#                 "name": f"{item.get('requested__firstname') or ''}".strip()
+#                         or item['requested__email'].split('@')[0],
+#                 "count": item['count']
+#             } for item in top_requesters
+#         ]
+
+#         # 4. Top Assignees (from assigned_users JSONField + legacy assignee)
+#         assignee_counts = defaultdict(int)
+#         assignee_info = {}
+
+#         for ticket in tickets_qs.only('assigned_users', 'assignee').iterator():
+#             # Legacy single assignee
+#             if ticket.assignee:
+#                 try:
+#                     user = User.objects.filter(
+#                         Q(id=ticket.assignee) | Q(email__iexact=str(ticket.assignee).strip())
+#                     ).first()
+#                     if user:
+#                         key = user.id
+#                         assignee_info[key] = {
+#                             "id": user.id,
+#                             "email": user.email,
+#                             "name": getattr(user, 'firstname', '') or getattr(user, 'username', '') or user.email.split('@')[0]
+#                         }
+#                         assignee_counts[key] += 1
+#                 except:
+#                     pass
+
+#             # Multiple assignees from JSONField
+#             if ticket.assigned_users:
+#                 try:
+#                     items = json.loads(ticket.assigned_users) if isinstance(ticket.assigned_users, str) else ticket.assigned_users
+#                     for val in items or []:
+#                         user = None
+#                         if isinstance(val, int) or (isinstance(val, str) and val.isdigit()):
+#                             user = User.objects.filter(id=int(val)).first()
+#                         elif isinstance(val, str) and '@' in val:
+#                             user = User.objects.filter(email__iexact=val.strip().strip('"\'')).first()
+
+#                         if user:
+#                             key = user.id
+#                             assignee_info[key] = {
+#                                 "id": user.id,
+#                                 "email": user.email,
+#                                 "name": getattr(user, 'firstname', '') or getattr(user, 'username', '') or user.email.split('@')[0]
+#                             }
+#                             assignee_counts[key] += 1
+#                 except:
+#                     continue
+
+#         top_assignees = sorted(
+#             [{"count": count, **info} for info, count in [(assignee_info[k], assignee_counts[k]) for k in assignee_counts]],
+#             key=lambda x: x['count'],
+#             reverse=True
+#         )[:15]
+
+#         analytics['top_assignees'] = top_assignees
+
+#         # 5. Ticket Creation Trend (Last 12 months)
+#         today = timezone.now().date()
+#         twelve_months_ago = today - timedelta(days=365)
+
+#         monthly_creation = tickets_qs.filter(
+#             created_date__date__gte=twelve_months_ago
+#         ).extra(
+#             select={'year': "EXTRACT(year FROM created_date)", 'month': "EXTRACT(month FROM created_date)"}
+#         ).values('year', 'month').annotate(total=Count('id')).order_by('year', 'month')
+
+#         month_map = defaultdict(int)
+#         for entry in monthly_creation:
+#             key = f"{int(entry['year'])}-{int(entry['month']):02d}"
+#             month_map[key] = entry['total']
+
+#         current = twelve_months_ago.replace(day=1)
+#         creation_trend = []
+#         while current <= today:
+#             key = current.strftime("%Y-%m")
+#             creation_trend.append({
+#                 "month": key,
+#                 "month_name": f"{calendar.month_name[current.month][:3]} {current.year}",
+#                 "total_tickets": month_map[key]
+#             })
+#             # Move to next month
+#             next_month = current.month % 12 + 1
+#             next_year = current.year + (current.month // 12)
+#             current = current.replace(month=next_month, year=next_year, day=1)
+
+#         analytics['ticket_creation_trend'] = creation_trend
+
+#         # 6. Tickets by Status per Month (Last 12 months)
+#         monthly_status = tickets_qs.filter(
+#             created_date__date__gte=twelve_months_ago
+#         ).extra(
+#             select={'year': "EXTRACT(year FROM created_date)", 'month': "EXTRACT(month FROM created_date)"}
+#         ).values('year', 'month', 'status__field_name').annotate(count=Count('id')).order_by('year', 'month')
+
+#         status_by_month = defaultdict(lambda: defaultdict(int))
+#         for entry in monthly_status:
+#             key = f"{int(entry['year'])}-{int(entry['month']):02d}"
+#             status_name = entry['status__field_name'] or "No Status"
+#             status_by_month[key][status_name] += entry['count']
+
+#         current = twelve_months_ago.replace(day=1)
+#         status_monthly = []
+#         while current <= today:
+#             key = current.strftime("%Y-%m")
+#             status_monthly.append({
+#                 "month": key,
+#                 "month_name": f"{calendar.month_name[current.month][:3]} {current.year}",
+#                 "statuses": dict(status_by_month[key])
+#             })
+#             next_month = current.month % 12 + 1
+#             next_year = current.year + (current.month // 12)
+#             current = current.replace(month=next_month, year=next_year, day=1)
+
+#         analytics['tickets_by_status_monthly'] = status_monthly
+
+#         # ===================================================================
+#         # Existing Stats (Keep your original logic here)
+#         # ===================================================================
+
+#         def get_user_details(user_identifier):
+#             try:
+#                 if isinstance(user_identifier, int) or (isinstance(user_identifier, str) and user_identifier.isdigit()):
+#                     user_obj = User.objects.filter(id=int(user_identifier)).first()
+#                 else:
+#                     email = str(user_identifier).strip().strip('"\'')
+#                     user_obj = User.objects.filter(email__iexact=email).first()
+
+#                 if not user_obj:
+#                     raise User.DoesNotExist
+
+#                 name = getattr(user_obj, 'firstname', '') or getattr(user_obj, 'username', '') or user_obj.email.split("@")[0]
+#                 return {
+#                     "id": user_obj.id,
+#                     "name": name,
+#                     "email": user_obj.email,
+#                     "full_name": name,
+#                 }
+#             except:
+#                 identifier = str(user_identifier)
+#                 return {
+#                     "id": None,
+#                     "name": identifier.split("@")[0] if "@" in identifier else identifier,
+#                     "email": identifier if "@" in identifier else f"{identifier}@unknown.com",
+#                     "full_name": identifier,
+#                 }
+
+#         def parse_assigned_users(value):
+#             if not value:
+#                 return []
+#             try:
+#                 parsed = json.loads(value) if isinstance(value, str) else value
+#                 return [get_user_details(item) for item in parsed if item is not None]
+#             except:
+#                 return []
+
+#         def get_tickets_by_status(queryset, status_name):
+#             tickets = queryset.filter(status__field_name__iexact=status_name).order_by("-ticket_no")
+#             tickets_data = []
+#             for ticket in tickets:
+#                 assigned_users = parse_assigned_users(ticket.assigned_users)
+#                 tickets_data.append({
+#                     "id": ticket.id,
+#                     "ticket_no": ticket.ticket_no,
+#                     "title": ticket.title,
+#                     "status": ticket.status.field_name if ticket.status else None,
+#                     "priority": ticket.priority.field_name if ticket.priority else None,
+#                     "category": ticket.category.category_name if ticket.category else None,
+#                     "location": ticket.location.field_name if ticket.location else None,
+#                     "requested_by": ticket.requested.email if ticket.requested else None,
+#                     "assigned_users": assigned_users,
+#                     "assigned_users_count": len(assigned_users),
+#                     "created_date": ticket.created_date,
+#                 })
+#             return {"count": len(tickets_data), "tickets": tickets_data}
+
+#         # Existing stats computation
+#         new_tickets = get_tickets_by_status(all_tickets_qs, 'New')
+#         solved_tickets = get_tickets_by_status(all_tickets_qs, 'Solved')
+#         closed_tickets = get_tickets_by_status(all_tickets_qs, 'Closed')
+#         cancelled_tickets = get_tickets_by_status(all_tickets_qs, 'Cancelled')
+#         clarification_required = get_tickets_by_status(all_tickets_qs, 'Clarification Required')
+#         supplied_tickets = get_tickets_by_status(all_tickets_qs, 'Clarification Supplied')
+
+#         total_tickets = all_tickets_qs.count()
+
+#         admin_stats = {
+#             "total_tickets": total_tickets,
+#             "new": new_tickets["count"],
+#             "solved": solved_tickets["count"],
+#             "closed": closed_tickets["count"],
+#             "cancelled": cancelled_tickets["count"],
+#             "clarification_required": clarification_required["count"],
+#             "supplied": supplied_tickets["count"],
+#         }
+
+#         # Final Response
+#         data = {
+#             "success": True,
+#             "user_email": user_email,
+#             "admin_stats": admin_stats,
+#             "dashboard_analytics": analytics,
+#             "filters": {
+#                 "entity_id": entity_id,
+#                 "assignee_user": assignee_user,
+#                 "assignee_group": assignee_group,
+#                 "search": search,
+#                 "date_range": {
+#                     "start_date": start_date_str,
+#                     "end_date": end_date_str
+#                 } if start_date_str and end_date_str else None
+#             }
+#         }
+
+#         return Response(data, status=status.HTTP_200_OK)     
+# import json
+# import calendar
+# from collections import defaultdict
+# from datetime import timedelta
+
+# from django.db.models import Q, Count
+# from django.db.models.functions import TruncMonth
+# from django.utils import timezone
+# from django.contrib.auth import get_user_model
+# from rest_framework.views import APIView
+# from rest_framework.response import Response
+# from rest_framework import status
+
+# User = get_user_model()
+
+# class AdminDashboardTicketView(APIView):
+#     def get(self, request):
+#         # Query parameters
+#         start_date_str = request.query_params.get('start_date')
+#         end_date_str = request.query_params.get('end_date')
+#         search = request.query_params.get('search', '').strip()
+#         entity_id = request.query_params.get('entity_id')
+#         assignee_user = request.query_params.get('assignee_user')
+#         assignee_group = request.query_params.get('assignee_group')
+#         user_email = request.user.email
+
+#         # Base queryset
+#         all_tickets_qs = CreateTicket.objects.all()
+
+#         # Apply filters
+#         if entity_id:
+#             try:
+#                 entity_id = int(entity_id)
+#                 all_tickets_qs = all_tickets_qs.filter(entity_id=entity_id)
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid entity_id"}, status=400)
+
+#         if assignee_user:
+#             try:
+#                 assignee_user_id = int(assignee_user)
+#                 all_tickets_qs = all_tickets_qs.filter(
+#                     Q(assigned_users__contains=[assignee_user_id]) |
+#                     Q(assigned_users__contains=assignee_user_id) |
+#                     Q(assignee=assignee_user_id)
+#                 ).distinct()
+#             except ValueError:
+#                 assignee_email = assignee_user.strip().strip('"\'')
+#                 all_tickets_qs = all_tickets_qs.filter(
+#                     Q(assigned_users__contains=[assignee_email]) |
+#                     Q(assigned_users__contains=assignee_email)
+#                 ).distinct()
+
+#         if assignee_group:
+#             try:
+#                 assignee_group_id = int(assignee_group)
+#                 all_tickets_qs = all_tickets_qs.filter(
+#                     Q(assigned_groups__contains=[assignee_group_id]) |
+#                     Q(assigned_groups__contains=assignee_group_id) |
+#                     Q(assigned_group_id=assignee_group_id)
+#                 ).distinct()
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid assignee_group ID"}, status=400)
+
+#         if start_date_str and end_date_str:
+#             try:
+#                 start_date = timezone.make_aware(timezone.datetime.strptime(start_date_str, '%Y-%m-%d'))
+#                 end_date = timezone.make_aware(timezone.datetime.strptime(end_date_str, '%Y-%m-%d')) + timedelta(days=1) - timedelta(seconds=1)
+#                 all_tickets_qs = all_tickets_qs.filter(created_date__gte=start_date, created_date__lte=end_date)
+#             except ValueError:
+#                 return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+
+#         if search:
+#             all_tickets_qs = all_tickets_qs.filter(
+#                 Q(title__icontains=search) | Q(description__icontains=search)
+#             )
+
+#         # Optimized queryset with select_related
+#         tickets_qs = all_tickets_qs.select_related(
+#             'category', 'location', 'status', 'priority', 'department', 'requested', 'entity'
+#         )
+
+#         analytics = {}
+
+#         # 1. Top Categories
+#         top_categories = tickets_qs.values('category__id', 'category__category_name') \
+#             .annotate(count=Count('id')) \
+#             .order_by('-count')[:10]
+
+#         analytics['top_categories'] = [
+#             {
+#                 "id": item['category__id'],
+#                 "name": item['category__category_name'] or "Uncategorized",
+#                 "count": item['count']
+#             } for item in top_categories if item['category__id']
+#         ]
+
+#         # 2. Top Locations
+#         top_locations = tickets_qs.filter(location__isnull=False) \
+#             .values('location__id', 'location__field_name') \
+#             .annotate(count=Count('id')) \
+#             .order_by('-count')[:10]
+
+#         analytics['top_locations'] = [
+#             {
+#                 "id": item['location__id'],
+#                 "name": item['location__field_name'] or "Unknown",
+#                 "count": item['count']
+#             } for item in top_locations
+#         ]
+
+#         # 3. Top Requesters (safe: no lastname)
+#         top_requesters = tickets_qs.filter(requested__isnull=False) \
+#             .values('requested__id', 'requested__email', 'requested__firstname') \
+#             .annotate(count=Count('id')) \
+#             .order_by('-count')[:15]
+
+#         analytics['top_requesters'] = [
+#             {
+#                 "id": item['requested__id'],
+#                 "email": item['requested__email'],
+#                 "name": (item.get('requested__firstname') or '').strip() 
+#                         or item['requested__email'].split('@')[0].title(),
+#                 "count": item['count']
+#             } for item in top_requesters
+#         ]
+
+#         # 4. Top Assignees (from assigned_users + legacy assignee)
+#         assignee_counts = defaultdict(int)
+#         assignee_info = {}
+
+#         for ticket in tickets_qs.iterator():  # No .only() → safe with select_related
+#             # Legacy assignee field
+#             if ticket.assignee:
+#                 try:
+#                     user = User.objects.filter(
+#                         Q(id=ticket.assignee) | Q(email__iexact=str(ticket.assignee).strip())
+#                     ).first()
+#                     if user:
+#                         key = user.id
+#                         name = (getattr(user, 'firstname', '') or getattr(user, 'username', '') or user.email.split('@')[0]).strip()
+#                         assignee_info[key] = {"id": user.id, "email": user.email, "name": name}
+#                         assignee_counts[key] += 1
+#                 except Exception:
+#                     pass
+
+#             # Multiple assignees from JSONField
+#             if ticket.assigned_users:
+#                 try:
+#                     items = json.loads(ticket.assigned_users) if isinstance(ticket.assigned_users, str) else ticket.assigned_users
+#                     for val in items or []:
+#                         user = None
+#                         if isinstance(val, int) or (isinstance(val, str) and val.isdigit()):
+#                             user = User.objects.filter(id=int(val)).first()
+#                         elif isinstance(val, str):
+#                             cleaned = val.strip().strip('"\'')
+#                             if '@' in cleaned:
+#                                 user = User.objects.filter(email__iexact=cleaned).first()
+
+#                         if user:
+#                             key = user.id
+#                             name = (getattr(user, 'firstname', '') or getattr(user, 'username', '') or user.email.split('@')[0]).strip()
+#                             assignee_info[key] = {"id": user.id, "email": user.email, "name": name}
+#                             assignee_counts[key] += 1
+#                 except Exception:
+#                     continue
+
+#         top_assignees = sorted(
+#             [{"count": assignee_counts[k], **assignee_info[k]} for k in assignee_counts],
+#             key=lambda x: x['count'],
+#             reverse=True
+#         )[:15]
+
+#         analytics['top_assignees'] = top_assignees
+
+#         # 5. Ticket Creation Trend (Last 12 months) - FIXED with TruncMonth
+#         today = timezone.now().date()
+#         twelve_months_ago = today - timedelta(days=365)
+
+#         monthly_creation = (
+#             tickets_qs
+#             .filter(created_date__date__gte=twelve_months_ago)
+#             .annotate(month=TruncMonth('created_date'))
+#             .values('month')
+#             .annotate(total=Count('id'))
+#             .order_by('month')
+#         )
+
+#         month_map = {entry['month'].strftime("%Y-%m"): entry['total'] for entry in monthly_creation}
+
+#         current = twelve_months_ago.replace(day=1)
+#         creation_trend = []
+#         while current <= today:
+#             key = current.strftime("%Y-%m")
+#             creation_trend.append({
+#                 "month": key,
+#                 "month_name": f"{calendar.month_name[current.month][:3]} {current.year}",
+#                 "total_tickets": month_map.get(key, 0)
+#             })
+#             if current.month == 12:
+#                 current = current.replace(year=current.year + 1, month=1)
+#             else:
+#                 current = current.replace(month=current.month + 1)
+
+#         analytics['ticket_creation_trend'] = creation_trend
+
+#         # 6. Tickets by Status per Month (Last 12 months) - FIXED
+#         monthly_status = (
+#             tickets_qs
+#             .filter(created_date__date__gte=twelve_months_ago)
+#             .annotate(month=TruncMonth('created_date'))
+#             .values('month', 'status__field_name')
+#             .annotate(count=Count('id'))
+#             .order_by('month')
+#         )
+
+#         status_by_month = defaultdict(lambda: defaultdict(int))
+#         for entry in monthly_status:
+#             key = entry['month'].strftime("%Y-%m")
+#             status_name = entry['status__field_name'] or "No Status"
+#             status_by_month[key][status_name] += entry['count']
+
+#         current = twelve_months_ago.replace(day=1)
+#         status_monthly = []
+#         while current <= today:
+#             key = current.strftime("%Y-%m")
+#             status_monthly.append({
+#                 "month": key,
+#                 "month_name": f"{calendar.month_name[current.month][:3]} {current.year}",
+#                 "statuses": dict(status_by_month[key])
+#             })
+#             if current.month == 12:
+#                 current = current.replace(year=current.year + 1, month=1)
+#             else:
+#                 current = current.replace(month=current.month + 1)
+
+#         analytics['tickets_by_status_monthly'] = status_monthly
+
+#         # Basic status counts
+#         def get_status_count(qs, status_name):
+#             return qs.filter(status__field_name__iexact=status_name).count()
+
+#         total_tickets = all_tickets_qs.count()
+#         admin_stats = {
+#             "total_tickets": total_tickets,
+#             "new": get_status_count(all_tickets_qs, 'New'),
+#             "solved": get_status_count(all_tickets_qs, 'Solved'),
+#             "closed": get_status_count(all_tickets_qs, 'Closed'),
+#             "cancelled": get_status_count(all_tickets_qs, 'Cancelled'),
+#             "clarification_required": get_status_count(all_tickets_qs, 'Clarification Required'),
+#             "supplied": get_status_count(all_tickets_qs, 'Clarification Supplied'),
+#         }
+
+#         # Final response
+#         data = {
+#             "success": True,
+#             "user_email": user_email,
+#             "admin_stats": admin_stats,
+#             "dashboard_analytics": analytics,
+#             "filters": {
+#                 "entity_id": entity_id,
+#                 "assignee_user": assignee_user,
+#                 "assignee_group": assignee_group,
+#                 "search": search or None,
+#                 "date_range": {
+#                     "start_date": start_date_str,
+#                     "end_date": end_date_str
+#                 } if start_date_str and end_date_str else None
+#             }
+#         }
+
+#         return Response(data, status=status.HTTP_200_OK)
+
+import json
+import calendar
+from collections import defaultdict
+from datetime import timedelta
+
+from django.db.models import Q, Count
+from django.utils import timezone
+from django.contrib.auth import get_user_model
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+
+User = get_user_model()
+
+# class AdminDashboardTicketView(APIView):
+#     def get(self, request):
+#         # Query parameters
+#         start_date_str = request.query_params.get('start_date')
+#         end_date_str = request.query_params.get('end_date')
+#         search = request.query_params.get('search', '').strip()
+#         entity_id = request.query_params.get('entity_id')
+#         assignee_user = request.query_params.get('assignee_user')
+#         assignee_group = request.query_params.get('assignee_group')
+#         user_email = request.user.email
+
+#         # Base queryset
+#         all_tickets_qs = CreateTicket.objects.all()
+
+#         # Track applied filters
+#         applied_filters = {}
+
+#         # Apply filters
+#         if entity_id:
+#             try:
+#                 entity_id = int(entity_id)
+#                 all_tickets_qs = all_tickets_qs.filter(entity_id=entity_id)
+#                 applied_filters['entity_id'] = entity_id
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid entity_id"}, status=400)
+
+#         if assignee_user:
+#             try:
+#                 assignee_user_id = int(assignee_user)
+#                 all_tickets_qs = all_tickets_qs.filter(
+#                     Q(assigned_users__contains=[assignee_user_id]) |
+#                     Q(assigned_users__contains=assignee_user_id) |
+#                     Q(assignee=assignee_user_id)
+#                 ).distinct()
+#                 applied_filters['assignee_user'] = assignee_user_id
+#             except ValueError:
+#                 assignee_email = assignee_user.strip().strip('"\'')
+#                 all_tickets_qs = all_tickets_qs.filter(
+#                     Q(assigned_users__contains=[assignee_email]) |
+#                     Q(assigned_users__contains=assignee_email)
+#                 ).distinct()
+#                 applied_filters['assignee_user'] = assignee_email
+
+#         if assignee_group:
+#             try:
+#                 assignee_group_id = int(assignee_group)
+#                 all_tickets_qs = all_tickets_qs.filter(
+#                     Q(assigned_groups__contains=[assignee_group_id]) |
+#                     Q(assigned_groups__contains=assignee_group_id) |
+#                     Q(assigned_group_id=assignee_group_id)
+#                 ).distinct()
+#                 applied_filters['assignee_group'] = assignee_group_id
+#             except (ValueError, TypeError):
+#                 return Response({"error": "Invalid assignee_group ID"}, status=400)
+
+#         if start_date_str and end_date_str:
+#             try:
+#                 start_date = timezone.make_aware(timezone.datetime.strptime(start_date_str, '%Y-%m-%d'))
+#                 end_date = timezone.make_aware(timezone.datetime.strptime(end_date_str, '%Y-%m-%d')) + timedelta(days=1) - timedelta(seconds=1)
+#                 all_tickets_qs = all_tickets_qs.filter(created_date__range=(start_date, end_date))
+#                 applied_filters['date_range'] = {"start_date": start_date_str, "end_date": end_date_str}
+#             except ValueError:
+#                 return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+
+#         if search:
+#             all_tickets_qs = all_tickets_qs.filter(
+#                 Q(title__icontains=search) | Q(description__icontains=search)
+#             )
+#             applied_filters['search'] = search
+
+#         # Optimized base queryset
+#         tickets_qs = all_tickets_qs.select_related(
+#             'category', 'location', 'status', 'priority', 'department', 'requested', 'entity'
+#         )
+
+#         analytics = {}
+
+#         # 1. Top Categories
+#         top_categories = tickets_qs.values('category__id', 'category__category_name') \
+#             .annotate(count=Count('id')) \
+#             .order_by('-count')[:10]
+
+#         analytics['top_categories'] = [
+#             {
+#                 "id": item['category__id'],
+#                 "name": item['category__category_name'] or "Uncategorized",
+#                 "count": item['count']
+#             } for item in top_categories if item['category__id']
+#         ]
+
+#         # 2. Top Locations
+#         top_locations = tickets_qs.filter(location__isnull=False) \
+#             .values('location__id', 'location__field_name') \
+#             .annotate(count=Count('id')) \
+#             .order_by('-count')[:10]
+
+#         analytics['top_locations'] = [
+#             {
+#                 "id": item['location__id'],
+#                 "name": item['location__field_name'] or "Unknown",
+#                 "count": item['count']
+#             } for item in top_locations
+#         ]
+
+#         # 3. Top Requesters
+#         top_requesters = tickets_qs.filter(requested__isnull=False) \
+#             .values('requested__id', 'requested__email', 'requested__firstname') \
+#             .annotate(count=Count('id')) \
+#             .order_by('-count')[:15]
+
+#         analytics['top_requesters'] = [
+#             {
+#                 "id": item['requested__id'],
+#                 "email": item['requested__email'],
+#                 "name": (item.get('requested__firstname') or '').strip() or item['requested__email'].split('@')[0].title(),
+#                 "count": item['count']
+#             } for item in top_requesters
+#         ]
+
+#         # 4. Top Assignees
+#         assignee_counts = defaultdict(int)
+#         assignee_info = {}
+
+#         for ticket in tickets_qs.iterator():
+#             if ticket.assignee:
+#                 try:
+#                     user = User.objects.filter(
+#                         Q(id=ticket.assignee) | Q(email__iexact=str(ticket.assignee).strip())
+#                     ).first()
+#                     if user:
+#                         key = user.id
+#                         name = (getattr(user, 'firstname', '') or getattr(user, 'username', '') or user.email.split('@')[0]).strip()
+#                         assignee_info[key] = {"id": user.id, "email": user.email, "name": name}
+#                         assignee_counts[key] += 1
+#                 except Exception:
+#                     pass
+
+#             if ticket.assigned_users:
+#                 try:
+#                     items = json.loads(ticket.assigned_users) if isinstance(ticket.assigned_users, str) else ticket.assigned_users
+#                     for val in items or []:
+#                         user = None
+#                         if isinstance(val, int) or (isinstance(val, str) and val.isdigit()):
+#                             user = User.objects.filter(id=int(val)).first()
+#                         elif isinstance(val, str):
+#                             cleaned = val.strip().strip('"\'')
+#                             if '@' in cleaned:
+#                                 user = User.objects.filter(email__iexact=cleaned).first()
+
+#                         if user:
+#                             key = user.id
+#                             name = (getattr(user, 'firstname', '') or getattr(user, 'username', '') or user.email.split('@')[0]).strip()
+#                             assignee_info[key] = {"id": user.id, "email": user.email, "name": name}
+#                             assignee_counts[key] += 1
+#                 except Exception:
+#                     continue
+
+#         top_assignees = sorted(
+#             [{"count": assignee_counts[k], **assignee_info[k]} for k in assignee_counts],
+#             key=lambda x: x['count'],
+#             reverse=True
+#         )[:15]
+
+#         analytics['top_assignees'] = top_assignees
+
+#         # 5. Ticket Creation Trend - FINAL FIX: Fully qualified table name
+#         now = timezone.now()
+#         one_year_ago = now - timedelta(days=365)
+
+#         # Critical: Use fully qualified table.column to avoid ambiguity
+#         table_name = CreateTicket._meta.db_table  # "tickets_createtickets"
+
+#         monthly_creation = (
+#             tickets_qs
+#             .filter(created_date__gte=one_year_ago)
+#             .extra(
+#                 select={
+#                     'year': f"EXTRACT(YEAR FROM `{table_name}`.created_date)",
+#                     'month': f"EXTRACT(MONTH FROM `{table_name}`.created_date)"
+#                 }
+#             )
+#             .values('year', 'month')
+#             .annotate(total=Count('id'))
+#             .order_by('year', 'month')
+#         )
+
+#         month_map = defaultdict(int)
+#         for entry in monthly_creation:
+#             key = f"{int(entry['year'])}-{int(entry['month']):02d}"
+#             month_map[key] = entry['total']
+
+#         current = one_year_ago.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+#         creation_trend = []
+#         while current < now:
+#             key = current.strftime("%Y-%m")
+#             creation_trend.append({
+#                 "month": key,
+#                 "month_name": f"{calendar.month_name[current.month][:3]} {current.year}",
+#                 "total_tickets": month_map.get(key, 0)
+#             })
+#             if current.month == 12:
+#                 current = current.replace(year=current.year + 1, month=1)
+#             else:
+#                 current = current.replace(month=current.month + 1)
+
+#         analytics['ticket_creation_trend'] = creation_trend
+
+#         # 6. Tickets by Status per Month - Same fix
+#         monthly_status = (
+#             tickets_qs
+#             .filter(created_date__gte=one_year_ago)
+#             .extra(
+#                 select={
+#                     'year': f"EXTRACT(YEAR FROM `{table_name}`.created_date)",
+#                     'month': f"EXTRACT(MONTH FROM `{table_name}`.created_date)"
+#                 }
+#             )
+#             .values('year', 'month', 'status__field_name')
+#             .annotate(count=Count('id'))
+#             .order_by('year', 'month')
+#         )
+
+#         status_by_month = defaultdict(lambda: defaultdict(int))
+#         for entry in monthly_status:
+#             key = f"{int(entry['year'])}-{int(entry['month']):02d}"
+#             status_name = entry['status__field_name'] or "No Status"
+#             status_by_month[key][status_name] += entry['count']
+
+#         current = one_year_ago.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+#         status_monthly = []
+#         while current < now:
+#             key = current.strftime("%Y-%m")
+#             status_monthly.append({
+#                 "month": key,
+#                 "month_name": f"{calendar.month_name[current.month][:3]} {current.year}",
+#                 "statuses": dict(status_by_month[key])
+#             })
+#             if current.month == 12:
+#                 current = current.replace(year=current.year + 1, month=1)
+#             else:
+#                 current = current.replace(month=current.month + 1)
+
+#         analytics['tickets_by_status_monthly'] = status_monthly
+
+#         # Basic status counts
+#         def get_status_count(qs, status_name):
+#             return qs.filter(status__field_name__iexact=status_name).count()
+
+#         total_tickets = all_tickets_qs.count()
+#         admin_stats = {
+#             "total_tickets": total_tickets,
+#             "new": get_status_count(all_tickets_qs, 'New'),
+#             "solved": get_status_count(all_tickets_qs, 'Solved'),
+#             "closed": get_status_count(all_tickets_qs, 'Closed'),
+#             "cancelled": get_status_count(all_tickets_qs, 'Cancelled'),
+#             "clarification_required": get_status_count(all_tickets_qs, 'Clarification Required'),
+#             "supplied": get_status_count(all_tickets_qs, 'Clarification Supplied'),
+#         }
+
+#         # Final response
+#         data = {
+#             "success": True,
+#             "user_email": user_email,
+#             "admin_stats": admin_stats,
+#             "dashboard_analytics": analytics,
+#             "applied_filters": applied_filters
+#         }
+
+#         return Response(data, status=status.HTTP_200_OK)
+import json
+import calendar
+from collections import defaultdict
+from datetime import timedelta
+
+from django.db.models import Q, Count
+from django.utils import timezone
+from django.contrib.auth import get_user_model
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+
+User = get_user_model()
+
+class AdminDashboardTicketView(APIView):
+    def get(self, request):
+        # Query parameters
+        start_date_str = request.query_params.get('start_date')
+        end_date_str = request.query_params.get('end_date')
+        search = request.query_params.get('search', '').strip()
+        entity_id = request.query_params.get('entity_id')
+        assignee_user = request.query_params.get('assignee_user')
+        assignee_group = request.query_params.get('assignee_group')
+        user_email = request.user.email
+
+        # Base queryset
+        all_tickets_qs = CreateTicket.objects.all()
+
+        # Track applied filters
+        applied_filters = {}
+
+        # Apply filters
+        if entity_id:
+            try:
+                entity_id = int(entity_id)
+                all_tickets_qs = all_tickets_qs.filter(entity_id=entity_id)
+                applied_filters['entity_id'] = entity_id
+            except (ValueError, TypeError):
+                return Response({"error": "Invalid entity_id"}, status=400)
+
+        if assignee_user:
+            try:
+                assignee_user_id = int(assignee_user)
+                all_tickets_qs = all_tickets_qs.filter(
+                    Q(assigned_users__contains=[assignee_user_id]) |
+                    Q(assigned_users__contains=assignee_user_id) |
+                    Q(assignee=assignee_user_id)
+                ).distinct()
+                applied_filters['assignee_user'] = assignee_user_id
+            except ValueError:
+                assignee_email = assignee_user.strip().strip('"\'')
+                all_tickets_qs = all_tickets_qs.filter(
+                    Q(assigned_users__contains=[assignee_email]) |
+                    Q(assigned_users__contains=assignee_email)
+                ).distinct()
+                applied_filters['assignee_user'] = assignee_email
+
+        if assignee_group:
+            try:
+                assignee_group_id = int(assignee_group)
+                all_tickets_qs = all_tickets_qs.filter(
+                    Q(assigned_groups__contains=[assignee_group_id]) |
+                    Q(assigned_groups__contains=assignee_group_id) |
+                    Q(assigned_group_id=assignee_group_id)
+                ).distinct()
+                applied_filters['assignee_group'] = assignee_group_id
+            except (ValueError, TypeError):
+                return Response({"error": "Invalid assignee_group ID"}, status=400)
+
+        if start_date_str and end_date_str:
+            try:
+                start_date = timezone.make_aware(timezone.datetime.strptime(start_date_str, '%Y-%m-%d'))
+                end_date = timezone.make_aware(timezone.datetime.strptime(end_date_str, '%Y-%m-%d')) + timedelta(days=1) - timedelta(seconds=1)
+                all_tickets_qs = all_tickets_qs.filter(created_date__range=(start_date, end_date))
+                applied_filters['date_range'] = {"start_date": start_date_str, "end_date": end_date_str}
+            except ValueError:
+                return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if search:
+            all_tickets_qs = all_tickets_qs.filter(
+                Q(title__icontains=search) | Q(description__icontains=search)
+            )
+            applied_filters['search'] = search
+
+        # Total count after filters
+        total_tickets_count = all_tickets_qs.count()
+
+        # Optimized queryset with select_related
+        tickets_qs = all_tickets_qs.select_related(
+            'category', 'location', 'status', 'priority', 'department', 'requested', 'entity'
+        ).order_by('-created_date')
+
+        analytics = {}
+
+        # 1. Top Categories
+        top_categories = tickets_qs.values('category__id', 'category__category_name') \
+            .annotate(count=Count('id')) \
+            .order_by('-count')[:10]
+
+        analytics['top_categories'] = [
+            {
+                "id": item['category__id'],
+                "name": item['category__category_name'] or "Uncategorized",
+                "count": item['count']
+            } for item in top_categories if item['category__id']
+        ]
+
+        # 2. Top Locations
+        top_locations = tickets_qs.filter(location__isnull=False) \
+            .values('location__id', 'location__field_name') \
+            .annotate(count=Count('id')) \
+            .order_by('-count')[:10]
+
+        analytics['top_locations'] = [
+            {
+                "id": item['location__id'],
+                "name": item['location__field_name'] or "Unknown",
+                "count": item['count']
+            } for item in top_locations
+        ]
+
+        # 3. Top Requesters
+        top_requesters = tickets_qs.filter(requested__isnull=False) \
+            .values('requested__id', 'requested__email', 'requested__firstname') \
+            .annotate(count=Count('id')) \
+            .order_by('-count')[:15]
+
+        analytics['top_requesters'] = [
+            {
+                "id": item['requested__id'],
+                "email": item['requested__email'],
+                "name": (item.get('requested__firstname') or '').strip() or item['requested__email'].split('@')[0].title(),
+                "count": item['count']
+            } for item in top_requesters
+        ]
+
+        # 4. Top Assignees
+        assignee_counts = defaultdict(int)
+        assignee_info = {}
+
+        for ticket in tickets_qs.iterator():
+            if ticket.assignee:
+                try:
+                    user = User.objects.filter(
+                        Q(id=ticket.assignee) | Q(email__iexact=str(ticket.assignee).strip())
+                    ).first()
+                    if user:
+                        key = user.id
+                        name = (getattr(user, 'firstname', '') or getattr(user, 'username', '') or user.email.split('@')[0]).strip()
+                        assignee_info[key] = {"id": user.id, "email": user.email, "name": name}
+                        assignee_counts[key] += 1
+                except Exception:
+                    pass
+
+            if ticket.assigned_users:
+                try:
+                    items = json.loads(ticket.assigned_users) if isinstance(ticket.assigned_users, str) else ticket.assigned_users
+                    for val in items or []:
+                        user = None
+                        if isinstance(val, int) or (isinstance(val, str) and val.isdigit()):
+                            user = User.objects.filter(id=int(val)).first()
+                        elif isinstance(val, str):
+                            cleaned = val.strip().strip('"\'')
+                            if '@' in cleaned:
+                                user = User.objects.filter(email__iexact=cleaned).first()
+
+                        if user:
+                            key = user.id
+                            name = (getattr(user, 'firstname', '') or getattr(user, 'username', '') or user.email.split('@')[0]).strip()
+                            assignee_info[key] = {"id": user.id, "email": user.email, "name": name}
+                            assignee_counts[key] += 1
+                except Exception:
+                    continue
+
+        top_assignees = sorted(
+            [{"count": assignee_counts[k], **assignee_info[k]} for k in assignee_counts],
+            key=lambda x: x['count'],
+            reverse=True
+        )[:15]
+
+        analytics['top_assignees'] = top_assignees
+
+        # 5. Ticket Creation Trend
+        now = timezone.now()
+        one_year_ago = now - timedelta(days=365)
+        table_name = CreateTicket._meta.db_table
+
+        monthly_creation = (
+            tickets_qs
+            .filter(created_date__gte=one_year_ago)
+            .extra(
+                select={
+                    'year': f"EXTRACT(YEAR FROM `{table_name}`.created_date)",
+                    'month': f"EXTRACT(MONTH FROM `{table_name}`.created_date)"
+                }
+            )
+            .values('year', 'month')
+            .annotate(total=Count('id'))
+            .order_by('year', 'month')
+        )
+
+        month_map = defaultdict(int)
+        for entry in monthly_creation:
+            key = f"{int(entry['year'])}-{int(entry['month']):02d}"
+            month_map[key] = entry['total']
+
+        current = one_year_ago.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        creation_trend = []
+        while current < now:
+            key = current.strftime("%Y-%m")
+            creation_trend.append({
+                "month": key,
+                "month_name": f"{calendar.month_name[current.month][:3]} {current.year}",
+                "total_tickets": month_map.get(key, 0)
+            })
+            if current.month == 12:
+                current = current.replace(year=current.year + 1, month=1)
+            else:
+                current = current.replace(month=current.month + 1)
+
+        analytics['ticket_creation_trend'] = creation_trend
+
+        # 6. Tickets by Status per Month
+        monthly_status = (
+            tickets_qs
+            .filter(created_date__gte=one_year_ago)
+            .extra(
+                select={
+                    'year': f"EXTRACT(YEAR FROM `{table_name}`.created_date)",
+                    'month': f"EXTRACT(MONTH FROM `{table_name}`.created_date)"
+                }
+            )
+            .values('year', 'month', 'status__field_name')
+            .annotate(count=Count('id'))
+            .order_by('year', 'month')
+        )
+
+        status_by_month = defaultdict(lambda: defaultdict(int))
+        for entry in monthly_status:
+            key = f"{int(entry['year'])}-{int(entry['month']):02d}"
+            status_name = entry['status__field_name'] or "No Status"
+            status_by_month[key][status_name] += entry['count']
+
+        current = one_year_ago.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        status_monthly = []
+        while current < now:
+            key = current.strftime("%Y-%m")
+            status_monthly.append({
+                "month": key,
+                "month_name": f"{calendar.month_name[current.month][:3]} {current.year}",
+                "statuses": dict(status_by_month[key])
+            })
+            if current.month == 12:
+                current = current.replace(year=current.year + 1, month=1)
+            else:
+                current = current.replace(month=current.month + 1)
+
+        analytics['tickets_by_status_monthly'] = status_monthly
+
+        # === Helper: Build rich ticket data ===
+        def build_ticket_data(ticket):
+            # Parse assignees
+            assignees = []
+            if ticket.assigned_users:
+                try:
+                    items = json.loads(ticket.assigned_users) if isinstance(ticket.assigned_users, str) else ticket.assigned_users
+                    for val in items or []:
+                        user = None
+                        if isinstance(val, int) or (isinstance(val, str) and val.isdigit()):
+                            user = User.objects.filter(id=int(val)).first()
+                        elif isinstance(val, str):
+                            cleaned = val.strip().strip('"\'')
+                            if '@' in cleaned:
+                                user = User.objects.filter(email__iexact=cleaned).first()
+                        if user:
+                            assignees.append({
+                                "id": user.id,
+                                "name": getattr(user, 'firstname', '') or user.email.split('@')[0],
+                                "email": user.email,
+                                "full_name": getattr(user, 'firstname', ''),
+                                "is_unknown": False
+                            })
+                except:
+                    pass
+
+            return {
+                "id": ticket.id,
+                "ticket_no": ticket.ticket_no,
+                "title": ticket.title,
+                "description": ticket.description[:100] + "..." if len(ticket.description) > 100 else ticket.description,
+                "status": ticket.status.field_name if ticket.status else None,
+                "status_detail": {
+                    "id": ticket.status.id if ticket.status else None,
+                    "field_name": ticket.status.field_name if ticket.status else None,
+                    "field_values": ticket.status.field_values if ticket.status else None
+                } if ticket.status else None,
+                "priority": ticket.priority.field_name if ticket.priority else None,
+                "priority_detail": {
+                    "id": ticket.priority.id if ticket.priority else None,
+                    "field_name": ticket.priority.field_name if ticket.priority else None,
+                    "field_values": ticket.priority.field_values if ticket.priority else None
+                } if ticket.priority else None,
+                "category": ticket.category.category_name if ticket.category else None,
+                "category_detail": {
+                    "id": ticket.category.id if ticket.category else None,
+                    "category_name": ticket.category.category_name if ticket.category else None,
+                } if ticket.category else None,
+                "subcategory": ticket.subcategory.subcategory_name if ticket.subcategory else None,
+                "subcategory_detail": {
+                    "id": ticket.subcategory.id if ticket.subcategory else None,
+                    "subcategory_name": ticket.subcategory.subcategory_name if ticket.subcategory else None
+                } if ticket.subcategory else None,
+                "department": ticket.department.field_name if ticket.department else None,
+                "department_detail": {
+                    "id": ticket.department.id if ticket.department else None,
+                    "field_name": ticket.department.field_name if ticket.department else None
+                } if ticket.department else None,
+                "location": ticket.location.field_name if ticket.location else None,
+                "location_detail": {
+                    "id": ticket.location.id if ticket.location else None,
+                    "field_name": ticket.location.field_name if ticket.location else None
+                } if ticket.location else None,
+                "requested_by": ticket.requested.email if ticket.requested else None,
+                "requested_detail": {
+                    "id": ticket.requested.id if ticket.requested else None,
+                    "name": getattr(ticket.requested, 'firstname', '') or (ticket.requested.email.split('@')[0] if ticket.requested else None),
+                    "email": ticket.requested.email if ticket.requested else None
+                } if ticket.requested else None,
+                "assignees": assignees,
+                "assigned_users": assignees,
+                "assigned_users_count": len(assignees),
+                "assigned_groups": [],
+                "assigned_groups_count": 0,
+                "created_date": ticket.created_date,
+                "updated_date": ticket.updated_date,
+                "has_assignments": len(assignees) > 0
+            }
+
+        # === USER STATS: Tickets by status ===
+        def get_tickets_by_status(qs, status_name):
+            tickets = qs.filter(status__field_name__iexact=status_name).order_by('-ticket_no')
+            return {
+                "count": tickets.count(),
+                "tickets": [build_ticket_data(t) for t in tickets]
+            }
+
+        new_tickets = get_tickets_by_status(all_tickets_qs, 'New')
+        solved_tickets = get_tickets_by_status(all_tickets_qs, 'Solved')
+        closed_tickets = get_tickets_by_status(all_tickets_qs, 'Closed')
+        cancelled_tickets = get_tickets_by_status(all_tickets_qs, 'Cancelled')
+        clarification_required = get_tickets_by_status(all_tickets_qs, 'Clarification Required')
+        supplied_tickets = get_tickets_by_status(all_tickets_qs, 'Clarification Supplied')
+
+        user_stats = {
+            "total_tickets": total_tickets_count,
+            "new_assigned": new_tickets["count"],
+            "new_assigned_tickets": new_tickets["tickets"],
+            "solved": solved_tickets["count"],
+            "solved_tickets": solved_tickets["tickets"],
+            "closed": closed_tickets["count"],
+            "closed_tickets": closed_tickets["tickets"],
+            "cancelled": cancelled_tickets["count"],
+            "cancelled_tickets": cancelled_tickets["tickets"],
+            "clarification_required": clarification_required["count"],
+            "clarification_required_tickets": clarification_required["tickets"],
+            "supplied": supplied_tickets["count"],
+            "supplied_tickets": supplied_tickets["tickets"],
+            "ticket_sources": {
+                "requested_by_any": total_tickets_count
+            }
+        }
+
+        # Approver & Admin stats
+        approver_stats = user_stats.copy()
+        approver_stats["ticket_sources"] = {"assigned_to_any": total_tickets_count}
+
+        admin_stats = {
+            "total_tickets": total_tickets_count,
+            "new": new_tickets["count"],
+            "solved": solved_tickets["count"],
+            "closed": closed_tickets["count"],
+            "cancelled": cancelled_tickets["count"],
+            "clarification_required": clarification_required["count"],
+            "supplied": supplied_tickets["count"],
+        }
+
+        # === NEW: Full list of ALL tickets ===
+        total_tickets_list = [build_ticket_data(t) for t in tickets_qs]
+
+        # Final response
+        data = {
+            "success": True,
+            "user_email": user_email,
+            "total_tickets_count": total_tickets_count,
+            "total_tickets_list": total_tickets_list,  # ← FULL DATA FOR ALL TICKETS
+            "user_stats": user_stats,
+            "approver_stats": approver_stats,
+            "admin_stats": admin_stats,
+            "dashboard_analytics": analytics,
+            "applied_filters": applied_filters
+        }
+
+        return Response(data, status=status.HTTP_200_OK)
 # class AdminTicketMessagesView(APIView):
 #     """
 #     Dedicated endpoint for Admins/Staff to view ALL messages of a specific ticket.
