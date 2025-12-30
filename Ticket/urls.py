@@ -18,7 +18,7 @@ from .views import (
     TicketView,HodUserAPIView,RoleAPIView,OverallStatusView,UserStatusView,TicketActionView,
     WatcherStatusView,UserRoleMappingAPIView,CEODashboardAPIView,MessageListCreateView,
     MessageDetailView,UserMessagesView,PlatformAPIView,ApproverTicketView,AdminTicketView,
-    DeleteTicketDocumentView, TicketSLAsWithNestedView,AdminTicketMessagesView
+    DeleteTicketDocumentView, TicketSLAsWithNestedView,AdminTicketMessagesView,FixTypeDetailView,FixTypeListCreateView,AdminDashboardTicketView
     # HodUserAPIView
     
 )
@@ -102,7 +102,9 @@ urlpatterns = [
 #    path('hod-dashboard/', HODApprovalDashboardAPI.as_view(), name='hod_dashboard'),
    path("platform/", PlatformAPIView.as_view()),
    path("platform/<int:pk>/", PlatformAPIView.as_view()),
-   
+    path('fix-types/', FixTypeListCreateView.as_view(), name="fix-type-list-create"),
+    path('fix-types/<int:pk>/', FixTypeDetailView.as_view(), name="fix-type-detail"),
+    path('admindashboard/count/',AdminDashboardTicketView.as_view(), name='admin-dashboard'),
 ]  
 
 # from django.urls import path

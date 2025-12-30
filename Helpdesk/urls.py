@@ -23,7 +23,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('Authenticate.urls')),
     path("api/tickets/", include("Ticket.urls")),
-    # path("api/external/", include("External.urls")),
+    path("api/external/", include("External.urls")),
 
 ]
 if settings.DEBUG:

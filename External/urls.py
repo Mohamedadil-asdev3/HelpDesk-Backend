@@ -1,7 +1,11 @@
 # urls.py (Add to your app's urls.py; include in main urls.py as path('api/tickets/', include('yourapp.urls')))
 from django.urls import path
-from .views import TicketPanelCreateView, TicketPanelListView, TicketPanelRetrieveView
-
+# from .views import TicketPanelCreateView, TicketPanelListView, TicketPanelRetrieveView
+from External.views import (
+    TicketPanelCreateView,
+    TicketPanelListView,
+    TicketPanelRetrieveView,
+)
 
 
 urlpatterns = [
