@@ -18,7 +18,7 @@ from .views import (
     TicketView,HodUserAPIView,RoleAPIView,OverallStatusView,UserStatusView,TicketActionView,
     WatcherStatusView,UserRoleMappingAPIView,CEODashboardAPIView,MessageListCreateView,
     MessageDetailView,UserMessagesView,PlatformAPIView,ApproverTicketView,AdminTicketView,
-    DeleteTicketDocumentView, TicketSLAsWithNestedView,AdminTicketMessagesView
+    DeleteTicketDocumentView, TicketSLAsWithNestedView,AdminTicketMessagesView,AdminDashboardTicketView
     # HodUserAPIView
     
 )
@@ -63,6 +63,7 @@ urlpatterns = [
     path('ticket/count/',TicketView.as_view(), name='ticket'),
     path('approver/count/',ApproverTicketView.as_view(), name='approver-ticket'),
     path('admin/count/',AdminTicketView.as_view(), name='admin-ticketview'),
+    path('admindashboard/count/',AdminDashboardTicketView.as_view(), name='admin-dashboard'),
     # path('sla/', SLAByEntityCategoryAPIView.as_view(), name='sla-by-entity'),
     path('entities/<int:pk>/', EntityAPIView.as_view()),
     path('hod-users/', HodUserAPIView.as_view(), name='hod-users'),

@@ -4160,7 +4160,7 @@ class MessageSerializer(serializers.ModelSerializer):
                     data['message'] = decrypted
                 except Exception:
                     data['message'] = "Decryption failed (invalid key or corrupted)."
-            data['protected'] = False  # Hide protected flag after decryption
+            # data['protected'] = False  # Hide protected flag after decryption
         elif protected and message.startswith('ENCRYPTED:'):
             # Mask for unauthorized (admin, etc.)
             data['message'] = "*** PROTECTED MESSAGE - VISIBLE ONLY TO RECEIVER ***"
