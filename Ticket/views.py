@@ -1382,7 +1382,15 @@ class TicketCategoryListCreateView(APIView):
  
     def get(self, request, *args, **kwargs):
         queryset = TicketCategory.objects.all()
-        serializer = TicketCategorySerializer(queryset, many=True)
+        # serializer = TicketCategorySerializer(queryset, many=True)
+        serializer = TicketCategorySerializer(
+        queryset,
+        many=True,
+        context={
+            'request': request,
+            'subcategory_id': request.query_params.get('subcategory_id')
+        }
+        )
         return Response(serializer.data)
  
     def post(self, request, *args, **kwargs):

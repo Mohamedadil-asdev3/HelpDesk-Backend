@@ -632,8 +632,9 @@ class TicketCategorySerializer(serializers.ModelSerializer):
     subcategories = serializers.SerializerMethodField(read_only=True)  # Use method to ensure all subcategories are fetched
  
     # SLA for assigned_to (shows user/group details)
+    # sla = serializers.SerializerMethodField(read_only=True)
     sla = serializers.SerializerMethodField(read_only=True)
- 
+    requires_subcategory = serializers.SerializerMethodField(read_only=True)
     # Confidential field (direct from model)
     confidential = serializers.CharField(read_only=True)
  
@@ -643,7 +644,8 @@ class TicketCategorySerializer(serializers.ModelSerializer):
             'id', 'entity_ids', 'entity_names', 'department_id', 'department_name',
             'category_name', 'category_description', 'is_active', 'confidential',
             'created_date', 'created_by', 'updated_by', 'updated_date',
-            'subcategories', 'sla'  # Added for frontend display
+            'subcategories', 'sla',
+              'requires_subcategory',  # Added for frontend display
         ]
         extra_kwargs = {
             'department_id': {'required': False, 'allow_null': True},
@@ -665,17 +667,44 @@ class TicketCategorySerializer(serializers.ModelSerializer):
         # Explicitly fetch all subcategories for this category (no filter on entity_ids for list view)
         subcats = TicketSubcategory.objects.filter(category=obj, is_active='Y').order_by('subcategory_name')
         return TicketSubcategorySerializer(subcats, many=True).data
- 
+    
+    def get_requires_subcategory(self, obj):
+        """
+        Returns True if this category has any SLA that depends on subcategory
+        """
+        return TicketSLA.objects.filter(
+            category=obj,
+            is_active='Y',
+            subcategory_ids__len__gt=0
+        ).exists()
     def get_sla(self, obj):
-        # Get the active SLA for this category (first match; refine with entity_ids if multi-entity)
-        try:
-            # Optional: Filter by entity_ids if needed: entity_ids=obj.entity_ids
-            sla = TicketSLA.objects.filter(category=obj, is_active='Y').first()
+        subcategory_id = self.context.get('subcategory_id')
+
+        qs = TicketSLA.objects.filter(category=obj, is_active='Y')
+
+        # Case 1: SLA WITHOUT subcategory → show immediately
+        no_subcat_sla = qs.filter(subcategory_ids=[]).first()
+        if no_subcat_sla:
+            return TicketSLASerializer(no_subcat_sla).data
+
+        # Case 2: SLA WITH subcategory → wait for selection
+        if subcategory_id:
+            sla = qs.filter(subcategory_ids__contains=[int(subcategory_id)]).first()
             if sla:
                 return TicketSLASerializer(sla).data
-        except TicketSLA.DoesNotExist:
-            pass
-        return None  # Returns empty or null for no SLA
+
+        return None
+
+    # def get_sla(self, obj):
+    #     # Get the active SLA for this category (first match; refine with entity_ids if multi-entity)
+    #     try:
+    #         # Optional: Filter by entity_ids if needed: entity_ids=obj.entity_ids
+    #         sla = TicketSLA.objects.filter(category=obj, is_active='Y').first()
+    #         if sla:
+    #             return TicketSLASerializer(sla).data
+    #     except TicketSLA.DoesNotExist:
+    #         pass
+    #     return None  # Returns empty or null for no SLA
  
     def to_internal_value(self, data):
         if 'entity_ids' in data:
@@ -2243,7 +2272,15 @@ logger = logging.getLogger(__name__)
 
 class CreateTicketSerializer(serializers.ModelSerializer):
     # Write-only PKs
-    entity = serializers.PrimaryKeyRelatedField(queryset=Entity.objects.all(), write_only=True, required=False, allow_null=True)
+    entity_id = serializers.PrimaryKeyRelatedField(
+    source="entity",
+    queryset=Entity.objects.all(),
+    write_only=True,
+    required=False,
+    allow_null=True
+)
+
+    #entity = serializers.PrimaryKeyRelatedField(queryset=Entity.objects.all(), write_only=True, required=False, allow_null=True)
     type = serializers.PrimaryKeyRelatedField(queryset=TicketsMasterConfiguration.objects.filter(field_type='TicketType'), write_only=True, required=False, allow_null=True)
     department = serializers.PrimaryKeyRelatedField(queryset=TicketsMasterConfiguration.objects.filter(field_type='Department'), write_only=True, required=False, allow_null=True)
     location = serializers.PrimaryKeyRelatedField(queryset=TicketsMasterConfiguration.objects.filter(field_type='Location'), write_only=True, required=False, allow_null=True)
@@ -2289,6 +2326,7 @@ class CreateTicketSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'ticket_no', 'title', 'description',
             'entity', 'type', 'type_detail',
+            'entity_id',
             'department', 'department_detail',
             'location', 'location_detail',
             'platform', 'platform_detail',
@@ -2376,43 +2414,98 @@ class CreateTicketSerializer(serializers.ModelSerializer):
         return details
 
     # ---------------------- VALIDATION ----------------------
-    def validate(self,data):
-        if not self.partial:
-            for field in ['title','description','category']:
+    # def validate(self,data):
+    #     if not self.partial:
+    #         for field in ['title','description','category']:
+    #             if not data.get(field):
+    #                 raise serializers.ValidationError({field:"This field is required."})
+
+    #     # Validate entity-category-subcategory
+    #     entity = data.get('entity')
+    #     category = data.get('category')
+    #     subcategory = data.get('subcategory')
+    #     # if entity and category and category.entity != entity:
+    #     #     raise serializers.ValidationError({'category':f"Selected category does not belong to entity '{entity.name}'."})
+    #     # if entity and subcategory and (subcategory.entity != entity or subcategory.category != category):
+    #     #     raise serializers.ValidationError({'subcategory':f"Selected subcategory does not belong to entity '{entity.name}' or category '{category.category_name}'."})
+    #     if entity and category:
+    #         if not category.entity_ids or entity.id not in category.entity_ids:
+    #             raise serializers.ValidationError({
+    #                 "category": "Selected category does not belong to this entity."
+    #             })
+            
+    #     if entity and subcategory:
+    #         if not subcategory.entity_ids or entity.id not in subcategory.entity_ids:
+    #             raise serializers.ValidationError({
+    #                 "subcategory": "Selected subcategory does not belong to this entity."
+    #             })
+
+    #     if category and subcategory and subcategory.category_id != category.id:
+    #         raise serializers.ValidationError({
+    #             "subcategory": "Subcategory does not belong to selected category."
+    #         })
+
+
+    #     status = data.get('status')
+    #     if status and (not isinstance(status,TicketsMasterConfiguration) or status.field_type!='Status' or status.is_active!='Y'):
+    #         raise serializers.ValidationError({"status":"Invalid or inactive status provided."})
+
+    #     # Validate assignees
+    #     assigned_to_type = data.get('assigned_to_type',[])
+    #     assignees = data.get('assignee',[])
+    #     assigned_groups = data.get('assigned_group_ids',[])
+
+    #     for email in assignees:
+    #         if not User.objects.filter(email=email).exists():
+    #             raise serializers.ValidationError({"assignee": f"User with email {email} does not exist."})
+    #     for gid in assigned_groups:
+    #         if not UsersGroup.objects.filter(id=gid).exists():
+    #             raise serializers.ValidationError({"assigned_group_ids": f"Group {gid} does not exist."})
+
+    #     has_user = 'user' in assigned_to_type
+    #     has_group = 'group' in assigned_to_type
+    #     # Removed strict checks for empty lists to allow selecting type without assignments (no error raised)
+
+    #     return data
+    def validate(self, data):
+        entity = data.get('entity') or getattr(self.instance, 'entity', None)
+        category = data.get('category') or getattr(self.instance, 'category', None)
+        subcategory = data.get('subcategory') or getattr(self.instance, 'subcategory', None)
+
+        # Required only on CREATE
+        if not self.partial and self.instance is None:
+            for field in ['title', 'description', 'category']:
                 if not data.get(field):
-                    raise serializers.ValidationError({field:"This field is required."})
+                    raise serializers.ValidationError({field: "This field is required."})
 
-        # Validate entity-category-subcategory
-        entity = data.get('entity')
-        category = data.get('category')
-        subcategory = data.get('subcategory')
-        if entity and category and category.entity != entity:
-            raise serializers.ValidationError({'category':f"Selected category does not belong to entity '{entity.name}'."})
-        if entity and subcategory and (subcategory.entity != entity or subcategory.category != category):
-            raise serializers.ValidationError({'subcategory':f"Selected subcategory does not belong to entity '{entity.name}' or category '{category.category_name}'."})
+        # Category → Entity (only if category updated)
+        # if 'category' in data and category:
+        #     if entity and (not category.entity_ids or entity.id not in category.entity_ids):
+        #         raise serializers.ValidationError({
+        #             "category": "Selected category does not belong to this entity."
+        #         })
 
-        # Validate status
-        status = data.get('status')
-        if status and (not isinstance(status,TicketsMasterConfiguration) or status.field_type!='Status' or status.is_active!='Y'):
-            raise serializers.ValidationError({"status":"Invalid or inactive status provided."})
+        # # Subcategory → Entity (only if subcategory updated)
+        # if 'subcategory' in data and subcategory:
+        #     if entity and (not subcategory.entity_ids or entity.id not in subcategory.entity_ids):
+        #         raise serializers.ValidationError({
+        #             "subcategory": "Selected subcategory does not belong to this entity."
+        #         })
+        if category and entity:
+            if not category.entity_ids or entity.id not in category.entity_ids:
+                raise serializers.ValidationError({
+                    "category": "Selected category does not belong to this entity."
+                })
 
-        # Validate assignees
-        assigned_to_type = data.get('assigned_to_type',[])
-        assignees = data.get('assignee',[])
-        assigned_groups = data.get('assigned_group_ids',[])
-
-        for email in assignees:
-            if not User.objects.filter(email=email).exists():
-                raise serializers.ValidationError({"assignee": f"User with email {email} does not exist."})
-        for gid in assigned_groups:
-            if not UsersGroup.objects.filter(id=gid).exists():
-                raise serializers.ValidationError({"assigned_group_ids": f"Group {gid} does not exist."})
-
-        has_user = 'user' in assigned_to_type
-        has_group = 'group' in assigned_to_type
-        # Removed strict checks for empty lists to allow selecting type without assignments (no error raised)
+        # ✅ Subcategory → Category (ONLY RULE NEEDED)
+        if subcategory and category:
+            if subcategory.category_id != category.id:
+                raise serializers.ValidationError({
+                    "subcategory": "Subcategory does not belong to selected category."
+                })
 
         return data
+
 
     # ---------------------- CREATE ----------------------
     def create(self, validated_data):

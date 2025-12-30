@@ -82,10 +82,16 @@ def send_ticket_created_notification(ticket_id):
                 logger.warning(f"Assigned group not found: {group_id}")
 
         # Optional: Notify requester automatically
-        # Uncomment if you want the ticket requester to always get a copy
-        # if ticket.requested and ticket.requested.is_active and ticket.requested.email:
-        #     recipients.add(ticket.requested.email)
-
+        #Uncomment if you want the ticket requester to always get a copy
+        if ticket.requested and ticket.requested.is_active and ticket.requested.email:
+            recipients.add(ticket.requested.email)
+        # if ticket.requested:
+        #     if ticket.requested.is_active and ticket.requested.email:
+        #         recipients.add(ticket.requested.email)
+        #     else:
+        #         logger.warning(
+        #             f"Requester inactive or email missing for ticket {ticket.ticket_no}"
+        #         )
         if not recipients:
             logger.info(f"No recipients found for ticket {ticket.ticket_no} (ID: {ticket.id})")
             return
