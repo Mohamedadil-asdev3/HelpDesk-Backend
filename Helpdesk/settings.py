@@ -95,7 +95,7 @@ WSGI_APPLICATION = 'Helpdesk.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'Helpdesk_new1',
+        'NAME': 'Helpdesk',
         'USER': 'root',
         'PASSWORD': 'Stemz@123',
         'HOST': '127.0.0.1',  
@@ -110,7 +110,7 @@ EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'asdev1@stemzglobal.com'
-EMAIL_HOST_PASSWORD = 'pjkc puoh tszw nsqh'
+EMAIL_HOST_PASSWORD = 'phkf svex gdmu azab'
 DEFAULT_FROM_EMAIL =  EMAIL_HOST_USER
 # SERVER_EMAIL = 'asdev1@stemzglobal.com'
 

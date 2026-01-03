@@ -5,7 +5,3 @@ venv/
 celerybeat-schedule
 /Authenticate/migrations
 /Ticket/migrations
-Helpdesk/settings.py
-Helpdesk/settings.py
-/Helpdesk
-/Helpdesk
