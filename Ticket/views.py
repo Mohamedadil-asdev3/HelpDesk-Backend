@@ -7231,10 +7231,48 @@ class CreateTicketView(APIView):
         updated_ticket = serializer.save()
        
         # NEW: Log status change if it occurred
+        # if old_status != updated_ticket.status:
+        #     logger.info(f"Status changed for ticket {updated_ticket.id}: {old_status.field_name} -> {updated_ticket.status.field_name}")
+        #     # TODO: Trigger notifications or workflows here if needed
+
+        # === NEW: Status-change notifications ===
+        from Ticket.tasks import send_status_change_notification
+
+# Detect status change
         if old_status != updated_ticket.status:
-            logger.info(f"Status changed for ticket {updated_ticket.id}: {old_status.field_name} -> {updated_ticket.status.field_name}")
-            # TODO: Trigger notifications or workflows here if needed
-       
+            status_name = updated_ticket.status.field_name if updated_ticket.status else None
+
+            # Map your status names exactly as in the DB
+            CLARIFICATION_REQUIRED = "Clarification Required"
+            CLARIFICATION_SUPPLIED = "Clarification Supplied"
+            CLOSED_STATUSES = {"Closed"}
+
+            if status_name == CLARIFICATION_REQUIRED:
+                # Notify only the requester
+                if updated_ticket.requested and updated_ticket.requested.email:
+                    send_status_change_notification.delay(
+                        ticket_id=updated_ticket.id,
+                        notify_type="clarification_required"  # We'll use this to control recipients
+                    )
+                    logger.info(f"Clarification Required notification queued for requester of ticket {updated_ticket.ticket_no}")
+
+            elif status_name == CLARIFICATION_SUPPLIED:
+                # Notify assigned technicians (users + group members)
+                send_status_change_notification.delay(
+                    ticket_id=updated_ticket.id,
+                    notify_type="clarification_supplied"
+                )
+                logger.info(f"Clarification Supplied notification queued for assignees of ticket {updated_ticket.ticket_no}")
+
+            elif status_name in CLOSED_STATUSES:
+                # Notify both requester AND technicians
+                send_status_change_notification.delay(
+                    ticket_id=updated_ticket.id,
+                    notify_type="closed"
+                )
+                logger.info(f"Ticket Closed ({status_name}) notification queued for both requester and assignees of ticket {updated_ticket.ticket_no}")
+        # =======================================
+            
         # Attachments for update (if provided)
         for f in request.FILES.getlist("documents"):
             TicketDocument.objects.create(ticket=updated_ticket, file=f)
