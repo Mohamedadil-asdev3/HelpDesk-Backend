@@ -18,7 +18,8 @@ from .views import (
     TicketView,HodUserAPIView,RoleAPIView,OverallStatusView,UserStatusView,TicketActionView,
     WatcherStatusView,UserRoleMappingAPIView,CEODashboardAPIView,MessageListCreateView,
     MessageDetailView,UserMessagesView,PlatformAPIView,ApproverTicketView,AdminTicketView,
-    DeleteTicketDocumentView, TicketSLAsWithNestedView,AdminTicketMessagesView,AdminDashboardTicketView
+    DeleteTicketDocumentView, TicketSLAsWithNestedView,AdminTicketMessagesView,AdminDashboardTicketView,
+    FixTypeListCreateView, FixTypeDetailView
     # HodUserAPIView
     
 )
@@ -69,6 +70,8 @@ urlpatterns = [
     path('hod-users/', HodUserAPIView.as_view(), name='hod-users'),
     path('ceo-dashboard/', CEODashboardAPIView.as_view(), name='ceo-dashboard'),
     
+    path('fix-types/', FixTypeListCreateView.as_view(), name="fix-type-list-create"),
+    path('fix-types/<int:pk>/', FixTypeDetailView.as_view(), name="fix-type-detail"),
 
     path('departments/', DepartmentAPIView.as_view(), name='department-list-create'),
     path('departments/<int:pk>/', DepartmentAPIView.as_view(), name='department-update-delete'),

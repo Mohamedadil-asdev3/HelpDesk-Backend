@@ -667,3 +667,19 @@ class Holiday(models.Model):
         db_table = 'master_holiday'  # Specifying the database table name
         verbose_name = 'Holiday'  # Singular representation in admin
         verbose_name_plural = 'Holidays'  # Plural representation in admin
+
+
+class FixType(models.Model):
+    name = models.CharField(max_length=150, unique=True)
+    description = models.TextField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+ 
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+ 
+    class Meta:
+        db_table = "fix_type"
+        ordering = ['name']
+ 
+    def __str__(self):
+        return self.name

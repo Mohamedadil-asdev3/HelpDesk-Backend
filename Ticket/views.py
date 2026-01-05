@@ -6,8 +6,8 @@ from rest_framework import status
 from django.template import Template, Context
 from .models import TicketsMasterConfiguration , TicketCategory, TicketSubcategory,CreateTicket,Entity,TicketApprovalLog,TicketSLA,TicketEmailTemplate,TicketDocument,Holiday
 from Authenticate.models import User,UsersGroup
-from .serializers import TicketsMasterConfigurationSerializer, TicketDocumentSerializer,TicketCategorySerializer,TicketSubcategorySerializer,TicketSLASerializer,CreateTicketSerializer,EntitySerializer,DepartmentSerializer,UserSerializer,TicketApprovalLogSerializer,TicketEmailTemplateSerializer,HolidaySerializer,RoleSerializer
-from .models import TicketsMasterConfiguration , TicketCategory, TicketSubcategory,CreateTicket,Entity,TicketApprovalLog,TicketSLA,TicketEmailTemplate,TicketDocument,Role,UserRoleMapping,Message
+from .serializers import TicketsMasterConfigurationSerializer, TicketDocumentSerializer,TicketCategorySerializer,TicketSubcategorySerializer,TicketSLASerializer,CreateTicketSerializer,EntitySerializer,DepartmentSerializer,UserSerializer,TicketApprovalLogSerializer,TicketEmailTemplateSerializer,HolidaySerializer,RoleSerializer,FixTypeSerializer
+from .models import TicketsMasterConfiguration , TicketCategory, TicketSubcategory,CreateTicket,Entity,TicketApprovalLog,TicketSLA,TicketEmailTemplate,TicketDocument,Role,UserRoleMapping,Message,FixType
 # from Authenticate.models import User,UsersGroup,Holiday
 from .serializers import TicketsMasterConfigurationSerializer, TicketDocumentSerializer,TicketCategorySerializer,TicketSubcategorySerializer,TicketSLASerializer,CreateTicketSerializer,EntitySerializer,DepartmentSerializer,UserSerializer,TicketApprovalLogSerializer,TicketEmailTemplateSerializer,HolidaySerializer,RoleSerializer,UserRoleMappingSerializer,MessageSerializer,PlatformSerializer
 from Authenticate.serializers import UsersGroupSerializer,WatcherUserSerializer
@@ -7235,24 +7235,61 @@ class CreateTicketView(APIView):
         #     logger.info(f"Status changed for ticket {updated_ticket.id}: {old_status.field_name} -> {updated_ticket.status.field_name}")
         #     # TODO: Trigger notifications or workflows here if needed
 
-        # === NEW: Status-change notifications ===
+#         # === NEW: Status-change notifications ===
+#         from Ticket.tasks import send_status_change_notification
+
+# # Detect status change
+#         if old_status != updated_ticket.status:
+#             status_name = updated_ticket.status.field_name if updated_ticket.status else None
+
+#             # Map your status names exactly as in the DB
+#             CLARIFICATION_REQUIRED = "Clarification Required"
+#             CLARIFICATION_SUPPLIED = "Clarification Supplied"
+#             CLOSED_STATUSES = {"Closed"}
+
+#             if status_name == CLARIFICATION_REQUIRED:
+#                 # Notify only the requester
+#                 if updated_ticket.requested and updated_ticket.requested.email:
+#                     send_status_change_notification.delay(
+#                         ticket_id=updated_ticket.id,
+#                         notify_type="clarification_required"  # We'll use this to control recipients
+#                     )
+#                     logger.info(f"Clarification Required notification queued for requester of ticket {updated_ticket.ticket_no}")
+
+#             elif status_name == CLARIFICATION_SUPPLIED:
+#                 # Notify assigned technicians (users + group members)
+#                 send_status_change_notification.delay(
+#                     ticket_id=updated_ticket.id,
+#                     notify_type="clarification_supplied"
+#                 )
+#                 logger.info(f"Clarification Supplied notification queued for assignees of ticket {updated_ticket.ticket_no}")
+
+#             elif status_name in CLOSED_STATUSES:
+#                 # Notify both requester AND technicians
+#                 send_status_change_notification.delay(
+#                     ticket_id=updated_ticket.id,
+#                     notify_type="closed"
+#                 )
+#                 logger.info(f"Ticket Closed ({status_name}) notification queued for both requester and assignees of ticket {updated_ticket.ticket_no}")
+#         # =======================================
         from Ticket.tasks import send_status_change_notification
 
-# Detect status change
+        # Detect status change
         if old_status != updated_ticket.status:
             status_name = updated_ticket.status.field_name if updated_ticket.status else None
 
             # Map your status names exactly as in the DB
             CLARIFICATION_REQUIRED = "Clarification Required"
             CLARIFICATION_SUPPLIED = "Clarification Supplied"
-            CLOSED_STATUSES = {"Closed"}
+            SOLVED_STATUS = "Solved"
+            CLOSED_STATUS = "Closed"
 
             if status_name == CLARIFICATION_REQUIRED:
                 # Notify only the requester
                 if updated_ticket.requested and updated_ticket.requested.email:
                     send_status_change_notification.delay(
                         ticket_id=updated_ticket.id,
-                        notify_type="clarification_required"  # We'll use this to control recipients
+                        notify_type="clarification_required"
                     )
                     logger.info(f"Clarification Required notification queued for requester of ticket {updated_ticket.ticket_no}")
 
@@ -7264,15 +7301,22 @@ class CreateTicketView(APIView):
                 )
                 logger.info(f"Clarification Supplied notification queued for assignees of ticket {updated_ticket.ticket_no}")
 
-            elif status_name in CLOSED_STATUSES:
-                # Notify both requester AND technicians
+            elif status_name == SOLVED_STATUS:
+                # Only requester gets "Solved" notification
+                send_status_change_notification.delay(
+                    ticket_id=updated_ticket.id,
+                    notify_type="solved"
+                )
+                logger.info(f"Solved notification queued for requester only of ticket {updated_ticket.ticket_no}")
+
+            elif status_name == CLOSED_STATUS:
+                # Both requester and assignees get "Closed" notification
                 send_status_change_notification.delay(
                     ticket_id=updated_ticket.id,
                     notify_type="closed"
                 )
-                logger.info(f"Ticket Closed ({status_name}) notification queued for both requester and assignees of ticket {updated_ticket.ticket_no}")
+                logger.info(f"Closed notification queued for both requester and assignees of ticket {updated_ticket.ticket_no}")
         # =======================================
-            
         # Attachments for update (if provided)
         for f in request.FILES.getlist("documents"):
             TicketDocument.objects.create(ticket=updated_ticket, file=f)
@@ -10739,3 +10783,46 @@ def is_privileged(user):
 #             response_data.append(category_data)
  
 #         return Response(response_data, status=status.HTTP_200_OK)
+
+class FixTypeListCreateView(APIView):
+    """Create FixType and Get all FixTypes"""
+ 
+    def get(self, request):
+        fix_types = FixType.objects.all()
+        serializer = FixTypeSerializer(fix_types, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+ 
+    def post(self, request):
+        serializer = FixTypeSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+ 
+ 
+class FixTypeDetailView(APIView):
+    """Get single FixType or Update FixType"""
+ 
+    def get_object(self, pk):
+        try:
+            return FixType.objects.get(pk=pk)
+        except FixType.DoesNotExist:
+            return None
+ 
+    def get(self, request, pk):
+        fix_type = self.get_object(pk)
+        if not fix_type:
+            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = FixTypeSerializer(fix_type)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+ 
+    def put(self, request, pk):
+        fix_type = self.get_object(pk)
+        if not fix_type:
+            return Response({"detail": "Not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = FixTypeSerializer(fix_type, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+ 

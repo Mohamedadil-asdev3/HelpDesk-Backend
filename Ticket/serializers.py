@@ -4300,3 +4300,8 @@ class PlatformSerializer(serializers.ModelSerializer):
         validated_data["field_type"] = "Platform"
         return super().update(instance, validated_data)
 
+class FixTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FixType
+        fields = '__all__'
+ 

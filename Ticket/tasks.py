@@ -516,13 +516,14 @@ def send_ticket_created_notification(ticket_id):
 # Status Change Notification (Clarification Flow)
 # -------------------------------------------------
 # Ticket/tasks.py (only the task part — keep the rest of your file unchanged)
-
 @shared_task
 def send_status_change_notification(ticket_id, notify_type):
     """
-    Handles:
+    Handles all status change notifications:
       - clarification_required   → Technician asks requester
       - clarification_supplied  → Requester replies to technicians
+      - solved                  → Only requester gets solved notification
+      - closed                  → Both requester and assignees get closed notification
     """
     logger.info(f"send_status_change_notification START: ticket_id={ticket_id}, notify_type={notify_type}")
 
@@ -531,40 +532,24 @@ def send_status_change_notification(ticket_id, notify_type):
             "requested", "status", "priority", "department", "location"
         ).get(id=ticket_id)
 
-        logger.info(f"Ticket loaded: #{ticket.ticket_no} (PK={ticket.pk}), Title: {ticket.title}")
+        logger.info(f"Ticket #{ticket.ticket_no} (PK={ticket.pk}) loaded")
         ticket_url = f"https://your-helpdesk-domain.com/tickets/{ticket.ticket_no}"
 
         # ============================================================
         # 1. CLARIFICATION REQUIRED (Technician → Requester)
         # ============================================================
         if notify_type == "clarification_required":
-            logger.info("=== Processing clarification_required ===")
+            logger.info("Processing clarification_required")
 
-            # EXPLICIT FK lookup using the actual column name
-            technician_messages = Message.objects.filter(
-                ticket_no_id=ticket.id  # This is the correct, explicit way
+            recent_messages = Message.objects.filter(
+                ticket_no_id=ticket.id
             ).exclude(
                 sender=ticket.requested
             ).order_by("-createdon")
 
-            logger.info(f"Query executed: ticket_no_id={ticket.id}, exclude sender_id={ticket.requested.id if ticket.requested else 'None'}")
-            logger.info(f"Found {technician_messages.count()} technician messages")
+            msg = recent_messages.first()
 
-            # Log the latest 3 messages for debugging
-            for i, m in enumerate(technician_messages[:3]):
-                preview = m.message[:60].replace('\n', ' ') if m.message else 'None'
-                logger.info(f"  [{i+1}] Msg ID={m.id} | Created={m.createdon} | Protected={m.protected} | Preview: {preview}")
-
-            msg = technician_messages.first()
-
-            if msg:
-                logger.info(f"Selected latest technician message: ID={msg.id}")
-                decrypted_text = decrypt_message_for_email(msg)
-                logger.info(f"Decrypted message: {decrypted_text}")
-                message_text = decrypted_text
-            else:
-                logger.warning("No technician message found — falling back to default text")
-                message_text = "No message provided"
+            message_text = decrypt_message_for_email(msg) if msg else "The technician has requested additional information."
 
             message_html = f"""
             <tr>
@@ -572,7 +557,7 @@ def send_status_change_notification(ticket_id, notify_type):
                 <b>Technician's Message</b>
                 <div style="margin-top:10px; padding:16px; background:#fffbeb; 
                             border-left:5px solid #f59e0b; border-radius:8px; 
-                            white-space:pre-line; font-size:15px;">
+                            white-space:pre-line; font-size:15px; line-height:1.6;">
                   {message_text}
                 </div>
               </td>
@@ -580,7 +565,6 @@ def send_status_change_notification(ticket_id, notify_type):
             """
 
             if ticket.requested and ticket.requested.email:
-                logger.info(f"Queueing email to requester: {ticket.requested.email}")
                 send_email_task.delay(
                     [ticket.requested.email],
                     f"Clarification Required - Ticket #{ticket.ticket_no}",
@@ -591,29 +575,21 @@ def send_status_change_notification(ticket_id, notify_type):
                         ticket_url
                     )
                 )
-                logger.info("Clarification required email successfully queued")
-            else:
-                logger.warning("Requester has no email address")
 
         # ============================================================
         # 2. CLARIFICATION SUPPLIED (Requester → Technicians)
         # ============================================================
         elif notify_type == "clarification_supplied":
-            logger.info("=== Processing clarification_supplied ===")
+            logger.info("Processing clarification_supplied")
 
             msg = Message.objects.filter(
                 ticket_no_id=ticket.id,
                 sender=ticket.requested
             ).order_by("-createdon").first()
 
-            if not msg:
-                logger.info(f"No requester message found for ticket #{ticket.ticket_no}")
-                return
-
-            logger.info(f"Found requester message ID {msg.id}")
+            requester_response = decrypt_message_for_email(msg) if msg else "The requester has provided clarification or updated the ticket."
 
             assignee_users = set()
-
             for email in ticket.assigned_users or []:
                 user = User.objects.filter(email=email, is_active=True).first()
                 if user:
@@ -626,27 +602,18 @@ def send_status_change_notification(ticket_id, notify_type):
                         if member.is_active:
                             assignee_users.add(member)
 
-            if not assignee_users:
-                logger.info("No assignees found")
-                return
-
-            logger.info(f"Sending to {len(assignee_users)} assignees")
-
             for user in assignee_users:
                 if not user.email:
                     continue
 
-                decrypted_text = decrypt_message_for_email(msg, user.id)
-                logger.info(f"Decrypted for {user.email}: {decrypted_text}")
-
                 message_html = f"""
                 <tr>
                   <td colspan="2" style="padding-top:20px;">
-                    <b>Requester's Response</b>
+                    <b>Update from Requester</b>
                     <div style="margin-top:10px; padding:16px; background:#ecfeff; 
                                 border-left:5px solid #06b6d4; border-radius:8px; 
                                 white-space:pre-line; font-size:15px;">
-                      {decrypted_text}
+                      {requester_response}
                     </div>
                   </td>
                 </tr>
@@ -657,29 +624,80 @@ def send_status_change_notification(ticket_id, notify_type):
                     f"Clarification Provided - Ticket #{ticket.ticket_no}",
                     wrap_html(
                         f"Clarification Provided: #{ticket.ticket_no}",
-                        "The requester has responded with additional information.",
+                        "The requester has provided clarification. Please review and proceed.",
                         build_ticket_table(ticket, message_html),
                         ticket_url
                     )
                 )
 
-            logger.info("Clarification supplied emails queued")
+        # ============================================================
+        # 3. SOLVED (Requester only)
+        # ============================================================
+        elif notify_type == "solved":
+            logger.info("Processing solved notification (requester only)")
 
-
-        elif notify_type == "closed":
-            logger.info("Processing closed notification")
-
-            # Optional: Get last technician message for resolution summary
             last_message = Message.objects.filter(
                 ticket_no_id=ticket.id
             ).exclude(
                 sender=ticket.requested
             ).order_by("-createdon").first()
 
-            resolution_note = ""
-            if last_message:
-                resolution_note = decrypt_message_for_email(last_message)
-                logger.info(f"Using last technician message as resolution note: {resolution_note[:100]}")
+            resolution_note = decrypt_message_for_email(last_message) if last_message else "The issue has been resolved."
+
+            # resolution_html = ""
+            # if resolution_note:
+            #     resolution_html = f"""
+            #     <tr>
+            #       <td colspan="2" style="padding-top:20px;">
+            #         <b>Resolution Summary</b>
+            #         <div style="margin-top:10px; padding:16px; background:#f0fff0; 
+            #                     border-left:5px solid #28a745; border-radius:8px; 
+            #                     white-space:pre-line; font-size:15px;">
+            #           {resolution_note}
+            #         </div>
+            #       </td>
+            #     </tr>
+            #     """
+
+            solved_html = f"""
+            <tr>
+              <td colspan="2" style="padding-top:20px;">
+                <div style="padding:20px; background:#d4edda; border-left:5px solid #28a745; border-radius:8px;">
+                  <p style="margin:0; font-size:16px; color:#155724;">
+                    <strong>Your ticket has been solved.</strong>
+                  </p>
+                  <p style="margin:10px 0 0;">The issue has been resolved. If you have any further questions, feel free to reopen or create a new ticket.</p>
+                </div>
+              </td>
+            </tr>
+            {resolution_html}
+            """
+
+            if ticket.requested and ticket.requested.email:
+                send_email_task.delay(
+                    [ticket.requested.email],
+                    f"Ticket Solved: #{ticket.ticket_no}",
+                    wrap_html(
+                        f"Ticket Solved: #{ticket.ticket_no}",
+                        "Great news! Your ticket has been resolved.",
+                        build_ticket_table(ticket, solved_html),
+                        ticket_url
+                    )
+                )
+
+        # ============================================================
+        # 4. CLOSED (Both requester and assignees)
+        # ============================================================
+        elif notify_type == "closed":
+            logger.info("Processing closed notification")
+
+            last_message = Message.objects.filter(
+                ticket_no_id=ticket.id
+            ).exclude(
+                sender=ticket.requested
+            ).order_by("-createdon").first()
+
+            resolution_note = decrypt_message_for_email(last_message) if last_message else ""
 
             resolution_html = ""
             if resolution_note:
@@ -701,7 +719,7 @@ def send_status_change_notification(ticket_id, notify_type):
               <td colspan="2" style="padding-top:20px;">
                 <div style="padding:20px; background:#d4edda; border-left:5px solid #28a745; border-radius:8px;">
                   <p style="margin:0; font-size:16px; color:#155724;">
-                    <strong>Your ticket has been resolved and closed.</strong>
+                    <strong>Your ticket has been closed.</strong>
                   </p>
                   <p style="margin:10px 0 0;">Thank you for your patience.</p>
                 </div>
@@ -712,11 +730,9 @@ def send_status_change_notification(ticket_id, notify_type):
 
             recipients = set()
 
-            # Add requester
             if ticket.requested and ticket.requested.email:
                 recipients.add(ticket.requested.email)
 
-            # Add assignees
             for email in ticket.assigned_users or []:
                 user = User.objects.filter(email=email, is_active=True).first()
                 if user and user.email:
@@ -735,19 +751,315 @@ def send_status_change_notification(ticket_id, notify_type):
                     f"Ticket Resolved & Closed: #{ticket.ticket_no}",
                     wrap_html(
                         f"Ticket Closed: #{ticket.ticket_no}",
-                        "Your ticket has been successfully resolved.",
+                        "Your ticket has been successfully closed.",
                         build_ticket_table(ticket, closed_html),
                         ticket_url
                     )
                 )
-                logger.info(f"Closed notification queued to {len(recipients)} recipients: {sorted(recipients)}")
-            else:
-                logger.warning("No recipients found for closed notification")
 
-    except CreateTicket.DoesNotExist:
-        logger.error(f"Ticket {ticket_id} does not exist")
     except Exception as e:
-        logger.error(f"Unexpected error in send_status_change_notification: {e}", exc_info=True)
+        logger.error(f"Error in send_status_change_notification: {e}", exc_info=True)
+# @shared_task
+# def send_status_change_notification(ticket_id, notify_type):
+#     """
+#     Handles:
+#       - clarification_required   → Technician asks requester
+#       - clarification_supplied  → Requester replies to technicians
+#     """
+#     logger.info(f"send_status_change_notification START: ticket_id={ticket_id}, notify_type={notify_type}")
+
+#     try:
+#         ticket = CreateTicket.objects.select_related(
+#             "requested", "status", "priority", "department", "location"
+#         ).get(id=ticket_id)
+
+#         logger.info(f"Ticket loaded: #{ticket.ticket_no} (PK={ticket.pk}), Title: {ticket.title}")
+#         ticket_url = f"https://your-helpdesk-domain.com/tickets/{ticket.ticket_no}"
+
+#         # ============================================================
+#         # 1. CLARIFICATION REQUIRED (Technician → Requester)
+#         # ============================================================
+#         if notify_type == "clarification_required":
+#             logger.info("=== Processing clarification_required ===")
+
+#             # EXPLICIT FK lookup using the actual column name
+#             technician_messages = Message.objects.filter(
+#                 ticket_no_id=ticket.id  # This is the correct, explicit way
+#             ).exclude(
+#                 sender=ticket.requested
+#             ).order_by("-createdon")
+
+#             logger.info(f"Query executed: ticket_no_id={ticket.id}, exclude sender_id={ticket.requested.id if ticket.requested else 'None'}")
+#             logger.info(f"Found {technician_messages.count()} technician messages")
+
+#             # Log the latest 3 messages for debugging
+#             for i, m in enumerate(technician_messages[:3]):
+#                 preview = m.message[:60].replace('\n', ' ') if m.message else 'None'
+#                 logger.info(f"  [{i+1}] Msg ID={m.id} | Created={m.createdon} | Protected={m.protected} | Preview: {preview}")
+
+#             msg = technician_messages.first()
+
+#             if msg:
+#                 logger.info(f"Selected latest technician message: ID={msg.id}")
+#                 decrypted_text = decrypt_message_for_email(msg)
+#                 logger.info(f"Decrypted message: {decrypted_text}")
+#                 message_text = decrypted_text
+#             else:
+#                 logger.warning("No technician message found — falling back to default text")
+#                 message_text = "No message provided"
+
+#             message_html = f"""
+#             <tr>
+#               <td colspan="2" style="padding-top:20px;">
+#                 <b>Technician's Message</b>
+#                 <div style="margin-top:10px; padding:16px; background:#fffbeb; 
+#                             border-left:5px solid #f59e0b; border-radius:8px; 
+#                             white-space:pre-line; font-size:15px;">
+#                   {message_text}
+#                 </div>
+#               </td>
+#             </tr>
+#             """
+
+#             if ticket.requested and ticket.requested.email:
+#                 logger.info(f"Queueing email to requester: {ticket.requested.email}")
+#                 send_email_task.delay(
+#                     [ticket.requested.email],
+#                     f"Clarification Required - Ticket #{ticket.ticket_no}",
+#                     wrap_html(
+#                         f"Clarification Required: #{ticket.ticket_no}",
+#                         "The technician needs more information to proceed.",
+#                         build_ticket_table(ticket, message_html),
+#                         ticket_url
+#                     )
+#                 )
+#                 logger.info("Clarification required email successfully queued")
+#             else:
+#                 logger.warning("Requester has no email address")
+
+#         # ============================================================
+#         # 2. CLARIFICATION SUPPLIED (Requester → Technicians)
+#         # ============================================================
+#         elif notify_type == "clarification_supplied":
+#             logger.info("=== Processing clarification_supplied ===")
+
+#             # Try to get the latest requester message
+#             msg = Message.objects.filter(
+#                 ticket_no_id=ticket.id,
+#                 sender=ticket.requested
+#             ).order_by("-createdon").first()
+
+#             if msg:
+#                 logger.info(f"Found requester message ID {msg.id}")
+#                 requester_response = decrypt_message_for_email(msg)
+#                 logger.info(f"Requester response: {requester_response}")
+#             else:
+#                 logger.warning("No requester message found — using generic message")
+#                 requester_response = "The requester has provided clarification or updated the ticket."
+
+#             # Collect assignees
+#             assignee_users = set()
+
+#             for email in ticket.assigned_users or []:
+#                 user = User.objects.filter(email=email, is_active=True).first()
+#                 if user:
+#                     assignee_users.add(user)
+
+#             for gid in ticket.assigned_groups or []:
+#                 group = UsersGroup.objects.filter(id=gid).first()
+#                 if group:
+#                     for member in group.get_users():
+#                         if member.is_active:
+#                             assignee_users.add(member)
+
+#             if not assignee_users:
+#                 logger.info("No assignees found for clarification_supplied")
+#                 return
+
+#             logger.info(f"Sending clarification_supplied notification to {len(assignee_users)} technicians")
+
+#             # Send to each assignee
+#             for user in assignee_users:
+#                 if not user.email:
+#                     continue
+
+#                 # Use the response (or generic)
+#                 decrypted_text = requester_response
+
+#                 message_html = f"""
+#                 <tr>
+#                   <td colspan="2" style="padding-top:20px;">
+#                     <b>Update from Requester</b>
+#                     <div style="margin-top:10px; padding:16px; background:#ecfeff; 
+#                                 border-left:5px solid #06b6d4; border-radius:8px; 
+#                                 white-space:pre-line; font-size:15px;">
+#                       {decrypted_text}
+#                     </div>
+#                   </td>
+#                 </tr>
+#                 """
+
+#                 send_email_task.delay(
+#                     [user.email],
+#                     f"Clarification Provided - Ticket #{ticket.ticket_no}",
+#                     wrap_html(
+#                         f"Clarification Provided: #{ticket.ticket_no}",
+#                         "The requester has provided clarification. Please review and proceed.",
+#                         build_ticket_table(ticket, message_html),
+#                         ticket_url
+#                     )
+#                 )
+
+#             logger.info("Clarification supplied emails successfully queued")
+
+
+#             # ============================================================
+#         # 3. SOLVED (Requester only)
+#         # ============================================================
+#         elif notify_type == "solved":
+#             logger.info("Processing solved notification (requester only)")
+
+#             # Get last technician message for resolution note
+#             last_message = Message.objects.filter(
+#                 ticket_no_id=ticket.id
+#             ).exclude(
+#                 sender=ticket.requested
+#             ).order_by("-createdon").first()
+
+#             resolution_note = ""
+#             if last_message:
+#                 resolution_note = decrypt_message_for_email(last_message)
+#                 logger.info(f"Using last technician message as resolution note: {resolution_note[:100]}")
+
+#             resolution_html = ""
+#             if resolution_note:
+#                 resolution_html = f"""
+#                 <tr>
+#                   <td colspan="2" style="padding-top:20px;">
+#                     <b>Resolution Summary</b>
+#                     <div style="margin-top:10px; padding:16px; background:#f0fff0; 
+#                                 border-left:5px solid #28a745; border-radius:8px; 
+#                                 white-space:pre-line; font-size:15px;">
+#                       {resolution_note}
+#                     </div>
+#                   </td>
+#                 </tr>
+#                 """
+
+#             solved_html = f"""
+#             <tr>
+#               <td colspan="2" style="padding-top:20px;">
+#                 <div style="padding:20px; background:#d4edda; border-left:5px solid #28a745; border-radius:8px;">
+#                   <p style="margin:0; font-size:16px; color:#155724;">
+#                     <strong>Your ticket has been solved.</strong>
+#                   </p>
+#                   <p style="margin:10px 0 0;">The issue has been resolved. If you have any further questions, feel free to reopen or create a new ticket.</p>
+#                 </div>
+#               </td>
+#             </tr>
+#             {resolution_html}
+#             """
+
+#             # Only send to requester
+#             if ticket.requested and ticket.requested.email:
+#                 send_email_task.delay(
+#                     [ticket.requested.email],
+#                     f"Ticket Solved: #{ticket.ticket_no}",
+#                     wrap_html(
+#                         f"Ticket Solved: #{ticket.ticket_no}",
+#                         "Great news! Your ticket has been resolved.",
+#                         build_ticket_table(ticket, solved_html),
+#                         ticket_url
+#                     )
+#                 )
+#                 logger.info(f"Solved notification sent to requester: {ticket.requested.email}")
+#             else:
+#                 logger.warning("Requester has no email for solved notification")
+
+
+#         elif notify_type == "closed":
+#             logger.info("Processing closed notification")
+
+#             # Optional: Get last technician message for resolution summary
+#             last_message = Message.objects.filter(
+#                 ticket_no_id=ticket.id
+#             ).exclude(
+#                 sender=ticket.requested
+#             ).order_by("-createdon").first()
+
+#             resolution_note = ""
+#             if last_message:
+#                 resolution_note = decrypt_message_for_email(last_message)
+#                 logger.info(f"Using last technician message as resolution note: {resolution_note[:100]}")
+
+#             resolution_html = ""
+#             if resolution_note:
+#                 resolution_html = f"""
+#                 <tr>
+#                   <td colspan="2" style="padding-top:20px;">
+#                     <b>Resolution Summary</b>
+#                     <div style="margin-top:10px; padding:16px; background:#f0fff0; 
+#                                 border-left:5px solid #28a745; border-radius:8px; 
+#                                 white-space:pre-line; font-size:15px;">
+#                       {resolution_note}
+#                     </div>
+#                   </td>
+#                 </tr>
+#                 """
+
+#             closed_html = f"""
+#             <tr>
+#               <td colspan="2" style="padding-top:20px;">
+#                 <div style="padding:20px; background:#d4edda; border-left:5px solid #28a745; border-radius:8px;">
+#                   <p style="margin:0; font-size:16px; color:#155724;">
+#                     <strong>Your ticket has been resolved and closed.</strong>
+#                   </p>
+#                   <p style="margin:10px 0 0;">Thank you for your patience.</p>
+#                 </div>
+#               </td>
+#             </tr>
+#             {resolution_html}
+#             """
+
+#             recipients = set()
+
+#             # Add requester
+#             if ticket.requested and ticket.requested.email:
+#                 recipients.add(ticket.requested.email)
+
+#             # Add assignees
+#             for email in ticket.assigned_users or []:
+#                 user = User.objects.filter(email=email, is_active=True).first()
+#                 if user and user.email:
+#                     recipients.add(user.email)
+
+#             for gid in ticket.assigned_groups or []:
+#                 group = UsersGroup.objects.filter(id=gid).first()
+#                 if group:
+#                     for member in group.get_users():
+#                         if member.is_active and member.email:
+#                             recipients.add(member.email)
+
+#             if recipients:
+#                 send_email_task.delay(
+#                     list(recipients),
+#                     f"Ticket Resolved & Closed: #{ticket.ticket_no}",
+#                     wrap_html(
+#                         f"Ticket Closed: #{ticket.ticket_no}",
+#                         "Your ticket has been successfully resolved.",
+#                         build_ticket_table(ticket, closed_html),
+#                         ticket_url
+#                     )
+#                 )
+#                 logger.info(f"Closed notification queued to {len(recipients)} recipients: {sorted(recipients)}")
+#             else:
+#                 logger.warning("No recipients found for closed notification")
+
+#     except CreateTicket.DoesNotExist:
+#         logger.error(f"Ticket {ticket_id} does not exist")
+#     except Exception as e:
+#         logger.error(f"Unexpected error in send_status_change_notification: {e}", exc_info=True)
+
 # -------------------------------------------------
 # STATUS CHANGE NOTIFICATIONS (FIXED)
 # -------------------------------------------------
